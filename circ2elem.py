@@ -145,7 +145,10 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
 
         geo = self.geometry
 
-        # ???????ufl doesn't support any measure for duality
+# ???
+# ??? what is the comment about?
+# ???
+        # ufl doesn't support any measure for duality
         # between two Real spaces, so we have to divide
         # by the total measure of the domain
         ds_sigma = geo.ds(sigma)
