@@ -4,6 +4,9 @@ from pathlib import Path
 import cardiac_geometries
 import pulse
 import dolfin
+import ufl_legacy as ufl
+from pulse.solver import NonlinearSolver
+
 import numpy as np
 import matplotlib.pyplot as plt
 import activation_model
@@ -16,7 +19,7 @@ t_span = (0.0, 1.0)
 P_ED=.1
 
 #%%
-class MechanicsProblem(pulse.MechanicsProblem):
+class MechanicsProblem_VConst(pulse.MechanicsProblem):
     """
     Base class for mechanics problem
     """
@@ -33,14 +36,14 @@ class MechanicsProblem(pulse.MechanicsProblem):
         logger.debug("Initialize mechanics problem")
         self.geometry = geometry
         self.material = material
-
+        self.Vendo = Vendo
         self._handle_bcs(bcs=bcs, bcs_parameters=bcs_parameters)
 
         # Make sure that the material has microstructure information
         for attr in ("f0", "s0", "n0"):
             setattr(self.material, attr, getattr(self.geometry, attr))
 
-        self.solver_parameters = dolfin.NonlinearSolver.default_solver_parameters()
+        self.solver_parameters = NonlinearSolver.default_solver_parameters()
         if solver_parameters is not None:
             self.solver_parameters.update(**solver_parameters)
 
@@ -110,37 +113,23 @@ class MechanicsProblem(pulse.MechanicsProblem):
 
         geo = self.geometry
 
-        # ufl doesn't support any measure for duality
+        # ???????ufl doesn't support any measure for duality
         # between two Real spaces, so we have to divide
         # by the total measure of the domain
         ds_sigma = geo.ds(sigma)
         area = dolfin.assemble(dolfin.Constant(1.0) * ds_sigma)
-        V_u = geo.inner_volume_form(u)
+        # Calculation of Vu which is the current volume based on deformation
+        xshift_val = geo.base_mean_position
+        xshift = dolfin.Constant(tuple(xshift_val))
+        x = ufl.SpatialCoordinate(geo.mesh) + u - xshift
+        F = ufl.grad(x)
+        n = ufl.cofac(F) * ufl.FacetNormal(geo.mesh)        
+        V_u = -1 / float(geo.mesh.geometry().dim()) * ufl.inner(x, n)
+        
         L = -pendo * V_u * ds_sigma
-
-        if V is not None:
-            L += dolfin.Constant(1.0 / area) * pendo * V * ds_sigma
+        L += dolfin.Constant(1.0 / area) * pendo * V * ds_sigma
         
         return L
-        
-    def inner_volume_form(self, u=None):
-        # In general the base is not flat nor at quota = 0, so we need
-        # a correction at least for the second case
-        if self._endoring_offset is None:
-            raise ValueError("The endoring at the base is not flat!")
-
-        xshift = [0.0, 0.0, 0.0]
-
-        xshift[self.long_axis] = self._endoring_offset
-        xshift = dolfin.Constant(tuple(xshift))
-
-        u = u or dolfin.Constant((0.0, 0.0, 0.0))
-
-        x = self.X + u - xshift
-        F = ufl.grad(x)
-        n = ufl.cofac(F) * self.N
-
-        return -1 / float(self.dim) * ufl.inner(x, n)
 
 #%%
 def get_ellipsoid_geometry(folder=Path("lv")):
@@ -230,25 +219,42 @@ bcs = pulse.BoundaryConditions(
 )
 
 
-#%% Create the problem
-problem = pulse.MechanicsProblem(geometry, material, bcs)
-vols = [0]
-pres = [0]
-dp=0.5
-p0=1
+#%%
+V0=geometry.cavity_volume()
+Vendo=dolfin.Constant(V0)
+problem = MechanicsProblem_VConst(geometry, material, Vendo, bcs)
+target_activation.vector()[:] = normal_activation_systole[0]
+pulse.iterate.iterate(problem, activation, target_activation)
+u, p, pendo = problem.state.split(deepcopy=True)
+v_current = geometry.cavity_volume(u=u)
 
-for i in range(5):
-    pi=p0+i*dp
-    target_activation.vector()[:] = normal_activation_systole[i]
-    pulse.iterate.iterate(problem, lvp, pi)
-    pulse.iterate.iterate(problem, activation, target_activation)
-    # Get the solution
-    u, p = problem.state.split(deepcopy=True)
-    volume_initial = geometry.cavity_volume(u=None)
-    volume = geometry.cavity_volume(u=u)
-    print(volume_initial)
-    print(volume)
-    vols.append(volume)
-    pres.append(lvp.values()[0])
+
+#%% Create the problem
+# problem = pulse.MechanicsProblem(geometry, material, bcs)
+
+# P_ED=1
+# pulse.iterate.iterate(problem, lvp, P_ED)
+# u, p = problem.state.split(deepcopy=True)
+
+
+
+# vols = [0]
+# pres = [0]
+# dp=0.5
+# p0=1
+
+# for i in range(5):
+#     pi=p0+i*dp
+#     target_activation.vector()[:] = normal_activation_systole[i]
+#     pulse.iterate.iterate(problem, lvp, pi)
+#     pulse.iterate.iterate(problem, activation, target_activation)
+#     # Get the solution
+#     u, p = problem.state.split(deepcopy=True)
+#     volume_initial = geometry.cavity_volume(u=None)
+#     volume = geometry.cavity_volume(u=u)
+#     print(volume_initial)
+#     print(volume)
+#     vols.append(volume)
+#     pres.append(lvp.values()[0])
 
 # %%
