@@ -6,6 +6,7 @@ import pulse
 import dolfin
 import ufl_legacy as ufl
 from pulse.solver import NonlinearSolver
+from pulse.solver import NonlinearProblem
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -97,6 +98,37 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
             dolfin.TrialFunction(self.state_space),
         )
         self._init_solver()
+    # def _init_solver(self):
+    #     try:
+    #         import dolfin_adjoint  # noqa: F401
+    #     except ImportError:
+    #             has_dolfin_adjoint = False
+    #     else:
+    #             has_dolfin_adjoint = True
+    #     if has_dolfin_adjoint:
+    #         from dolfin_adjoint import (
+    #             NonlinearVariationalProblem,
+    #             NonlinearVariationalSolver,
+    #         )
+
+    #         self._problem = NonlinearVariationalProblem(
+    #             J=self._jacobian,
+    #             F=self._virtual_work,
+    #             u=self.state,
+    #             bcs=self._dirichlet_bc,
+    #         )
+    #         self.solver = NonlinearVariationalSolver(self._problem)
+    #     else:
+    #         self._problem = NonlinearProblem(
+    #             J=self._jacobian,
+    #             F=self._virtual_work,
+    #             bcs=self._dirichlet_bc,
+    #         )
+    #         self.solver = NonlinearSolver(
+    #             self._problem,
+    #             self.state,
+    #             parameters=self.solver_parameters,
+    #         )
         
     def _inner_volume_constraint(self, u, pendo, V, sigma):
         """
@@ -128,9 +160,12 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
         
         L = -pendo * V_u * ds_sigma
         L += dolfin.Constant(1.0 / area) * pendo * V * ds_sigma
-        
+        # L += pendo * V * ds_sigma
         return L
 
+# ???
+# ??? why dolfin.Constant(1.0 / area)
+# ???
 #%%
 def get_ellipsoid_geometry(folder=Path("lv")):
     if not folder.is_dir():
@@ -171,6 +206,9 @@ V = dolfin.FunctionSpace(geometry.mesh, "CG", 1)
 target_activation = dolfin.Function(V)
 activation = dolfin.Function(V)
 
+# ???
+# ??? why not defining actiction as a real field
+# ???
 #%% Material Properties
 matparams = pulse.HolzapfelOgden.default_parameters()
 material = pulse.HolzapfelOgden(
@@ -224,37 +262,9 @@ V0=geometry.cavity_volume()
 Vendo=dolfin.Constant(V0)
 problem = MechanicsProblem_VConst(geometry, material, Vendo, bcs)
 target_activation.vector()[:] = normal_activation_systole[0]
+target_activation.vector()[:] = normal_activation_systole[0]/10
 pulse.iterate.iterate(problem, activation, target_activation)
 u, p, pendo = problem.state.split(deepcopy=True)
 v_current = geometry.cavity_volume(u=u)
+p_current=pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
 
-
-#%% Create the problem
-# problem = pulse.MechanicsProblem(geometry, material, bcs)
-
-# P_ED=1
-# pulse.iterate.iterate(problem, lvp, P_ED)
-# u, p = problem.state.split(deepcopy=True)
-
-
-
-# vols = [0]
-# pres = [0]
-# dp=0.5
-# p0=1
-
-# for i in range(5):
-#     pi=p0+i*dp
-#     target_activation.vector()[:] = normal_activation_systole[i]
-#     pulse.iterate.iterate(problem, lvp, pi)
-#     pulse.iterate.iterate(problem, activation, target_activation)
-#     # Get the solution
-#     u, p = problem.state.split(deepcopy=True)
-#     volume_initial = geometry.cavity_volume(u=None)
-#     volume = geometry.cavity_volume(u=u)
-#     print(volume_initial)
-#     print(volume)
-#     vols.append(volume)
-#     pres.append(lvp.values()[0])
-
-# %%
