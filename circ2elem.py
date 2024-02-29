@@ -7,11 +7,141 @@ import dolfin
 import numpy as np
 import matplotlib.pyplot as plt
 import activation_model
+from pulse.utils import getLogger
+logger = getLogger(__name__)
 #%%Parameters
 
-t_res=50
+t_res=100
 t_span = (0.0, 1.0)
-P_ED=7
+P_ED=.1
+
+#%%
+class MechanicsProblem(pulse.MechanicsProblem):
+    """
+    Base class for mechanics problem
+    """
+
+    def __init__(
+        self,
+        geometry: pulse.Geometry,
+        material: pulse.Material,
+        Vendo: dolfin.Constant,
+        bcs=None,
+        bcs_parameters=None,
+        solver_parameters=None,
+    ):
+        logger.debug("Initialize mechanics problem")
+        self.geometry = geometry
+        self.material = material
+
+        self._handle_bcs(bcs=bcs, bcs_parameters=bcs_parameters)
+
+        # Make sure that the material has microstructure information
+        for attr in ("f0", "s0", "n0"):
+            setattr(self.material, attr, getattr(self.geometry, attr))
+
+        self.solver_parameters = dolfin.NonlinearSolver.default_solver_parameters()
+        if solver_parameters is not None:
+            self.solver_parameters.update(**solver_parameters)
+
+        self._init_spaces()
+        self._init_forms()
+
+    def _init_spaces(self):
+        logger.debug("Initialize spaces for mechanics problem -- with lvp")
+        mesh = self.geometry.mesh
+
+        P2 = dolfin.VectorElement("Lagrange", mesh.ufl_cell(), 2)
+        P1 = dolfin.FiniteElement("Lagrange", mesh.ufl_cell(), 1)
+        R = dolfin.FiniteElement("Real", mesh.ufl_cell(),0)
+
+        self.state_space = dolfin.FunctionSpace(mesh, dolfin.MixedElement([P2,P1,R]))
+
+        self.state = dolfin.Function(self.state_space, name="state")
+        self.state_test = dolfin.TestFunction(self.state_space)
+
+    def _init_forms(self):
+        logger.debug("Initialize forms mechanics problem")
+        # Displacement and hydrostatic_pressure
+        u, p, pendo = dolfin.split(self.state)
+        v, q, qendo  = dolfin.split(self.state_test)
+
+        # Some mechanical quantities
+        F = dolfin.variable(pulse.kinematics.DeformationGradient(u))
+        J = pulse.kinematics.Jacobian(F)
+        dx = self.geometry.dx
+
+        internal_energy = self.material.strain_energy(
+            F,
+        ) + self.material.compressibility(p, J) 
+
+        volume_constraint=self._inner_volume_constraint(u, pendo, self.Vendo, self.geometry.markers["ENDO"][0])
+
+        self._virtual_work = dolfin.derivative(
+            internal_energy * dx + volume_constraint,
+            self.state,
+            self.state_test,
+        )
+
+        external_work = self._external_work(u, v)
+        if external_work is not None:
+            self._virtual_work += external_work
+
+        self._set_dirichlet_bc()
+        self._jacobian = dolfin.derivative(
+            self._virtual_work,
+            self.state,
+            dolfin.TrialFunction(self.state_space),
+        )
+        self._init_solver()
+        
+    def _inner_volume_constraint(self, u, pendo, V, sigma):
+        """
+        Excerpted from PULSE 2
+        
+        Compute the form
+            (V(u) - V, pendo) * ds(sigma)
+        where V(u) is the volume computed from u and
+            u = displacement
+            V = volume enclosed by sigma
+            pendo = Lagrange multiplier
+        sigma is the boundary of the volume.
+        """
+
+        geo = self.geometry
+
+        # ufl doesn't support any measure for duality
+        # between two Real spaces, so we have to divide
+        # by the total measure of the domain
+        ds_sigma = geo.ds(sigma)
+        area = dolfin.assemble(dolfin.Constant(1.0) * ds_sigma)
+        V_u = geo.inner_volume_form(u)
+        L = -pendo * V_u * ds_sigma
+
+        if V is not None:
+            L += dolfin.Constant(1.0 / area) * pendo * V * ds_sigma
+        
+        return L
+        
+    def inner_volume_form(self, u=None):
+        # In general the base is not flat nor at quota = 0, so we need
+        # a correction at least for the second case
+        if self._endoring_offset is None:
+            raise ValueError("The endoring at the base is not flat!")
+
+        xshift = [0.0, 0.0, 0.0]
+
+        xshift[self.long_axis] = self._endoring_offset
+        xshift = dolfin.Constant(tuple(xshift))
+
+        u = u or dolfin.Constant((0.0, 0.0, 0.0))
+
+        x = self.X + u - xshift
+        F = ufl.grad(x)
+        n = ufl.cofac(F) * self.N
+
+        return -1 / float(self.dim) * ufl.inner(x, n)
+
 #%%
 def get_ellipsoid_geometry(folder=Path("lv")):
     if not folder.is_dir():
@@ -64,7 +194,7 @@ material = pulse.HolzapfelOgden(
 )
 #%% Boundary Conditions
 # LV Pressure
-lvp = dolfin.Constant(P_ED)
+lvp = dolfin.Constant(0.0)
 lv_marker = geometry.markers["ENDO"][0]
 lv_pressure = pulse.NeumannBC(traction=lvp, marker=lv_marker, name="lv")
 neumann_bc = [lv_pressure]
@@ -102,12 +232,23 @@ bcs = pulse.BoundaryConditions(
 
 #%% Create the problem
 problem = pulse.MechanicsProblem(geometry, material, bcs)
-vols = []
+vols = [0]
+pres = [0]
+dp=0.5
+p0=1
 
+for i in range(5):
+    pi=p0+i*dp
+    target_activation.vector()[:] = normal_activation_systole[i]
+    pulse.iterate.iterate(problem, lvp, pi)
+    pulse.iterate.iterate(problem, activation, target_activation)
+    # Get the solution
+    u, p = problem.state.split(deepcopy=True)
+    volume_initial = geometry.cavity_volume(u=None)
+    volume = geometry.cavity_volume(u=u)
+    print(volume_initial)
+    print(volume)
+    vols.append(volume)
+    pres.append(lvp.values()[0])
 
-target_activation.vector()[:] = normal_activation_systole[0]
-pulse.iterate.iterate(problem, activation, target_activation)
-# Get the solution
-u, p = problem.state.split(deepcopy=True)
-volume = geometry.cavity_volume(u=u)
 # %%
