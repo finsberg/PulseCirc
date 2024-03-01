@@ -15,9 +15,10 @@ from pulse.utils import getLogger
 logger = getLogger(__name__)
 #%%Parameters
 
-t_res=100
+t_res=200
 t_span = (0.0, 1.0)
-P_ED=.1
+# Aortic Pressure: the pressure from which the ejection start
+P_ao=12
 
 #%%
 class MechanicsProblem_VConst(pulse.MechanicsProblem):
@@ -98,41 +99,10 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
             dolfin.TrialFunction(self.state_space),
         )
         self._init_solver()
-    # def _init_solver(self):
-    #     try:
-    #         import dolfin_adjoint  # noqa: F401
-    #     except ImportError:
-    #             has_dolfin_adjoint = False
-    #     else:
-    #             has_dolfin_adjoint = True
-    #     if has_dolfin_adjoint:
-    #         from dolfin_adjoint import (
-    #             NonlinearVariationalProblem,
-    #             NonlinearVariationalSolver,
-    #         )
-
-    #         self._problem = NonlinearVariationalProblem(
-    #             J=self._jacobian,
-    #             F=self._virtual_work,
-    #             u=self.state,
-    #             bcs=self._dirichlet_bc,
-    #         )
-    #         self.solver = NonlinearVariationalSolver(self._problem)
-    #     else:
-    #         self._problem = NonlinearProblem(
-    #             J=self._jacobian,
-    #             F=self._virtual_work,
-    #             bcs=self._dirichlet_bc,
-    #         )
-    #         self.solver = NonlinearSolver(
-    #             self._problem,
-    #             self.state,
-    #             parameters=self.solver_parameters,
-    #         )
         
     def _inner_volume_constraint(self, u, pendo, V, sigma):
         """
-        Excerpted from PULSE 2
+        Adapted from PULSE 2
         
         Compute the form
             (V(u) - V, pendo) * ds(sigma)
@@ -154,8 +124,12 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
         ds_sigma = geo.ds(sigma)
         area = dolfin.assemble(dolfin.Constant(1.0) * ds_sigma)
         # Calculation of Vu which is the current volume based on deformation
-        xshift_val = geo.base_mean_position
-        xshift = dolfin.Constant(tuple(xshift_val))
+        geo.update_xshift()
+        xshift_val = geometry.xshift
+        xshift = [0.0, 0.0, 0.0]
+        xshift[0] = geo.base_mean_position[0]
+        xshift = dolfin.Constant(tuple(xshift))
+        #xshift = dolfin.Constant(xshift_val)
         x = ufl.SpatialCoordinate(geo.mesh) + u - xshift
         F = ufl.grad(x)
         n = ufl.cofac(F) * ufl.FacetNormal(geo.mesh)        
@@ -166,9 +140,6 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
         # L += pendo * V * ds_sigma
         return L
 
-# ???
-# ??? why dolfin.Constant(1.0 / area)
-# ???
 #%%
 def get_ellipsoid_geometry(folder=Path("lv")):
     if not folder.is_dir():
@@ -204,14 +175,10 @@ normal_activation = (
 systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
 t_eval_systole=t_eval[systole_ind:]
-# %%
-V = dolfin.FunctionSpace(geometry.mesh, "CG", 1)
-target_activation = dolfin.Function(V)
-activation = dolfin.Function(V)
+# %% Defining activation as dolfin.constant
 
-# ???
-# ??? why not defining actiction as a real field
-# ???
+activation = dolfin.Constant(0.0, name='gamma')
+
 #%% Material Properties
 matparams = pulse.HolzapfelOgden.default_parameters()
 material = pulse.HolzapfelOgden(
@@ -223,11 +190,6 @@ material = pulse.HolzapfelOgden(
     n0=geometry.n0,
 )
 #%% Boundary Conditions
-# LV Pressure
-lvp = dolfin.Constant(0.0)
-lv_marker = geometry.markers["ENDO"][0]
-lv_pressure = pulse.NeumannBC(traction=lvp, marker=lv_marker, name="lv")
-neumann_bc = [lv_pressure]
 # Add spring term at the epicardium of stiffness 1.0 kPa/cm^2 to represent pericardium
 base_spring = 1.0
 robin_bc = [
@@ -255,19 +217,52 @@ dirichlet_bc = (fix_basal_plane,)
 # Collect boundary conditions
 bcs = pulse.BoundaryConditions(
     dirichlet=dirichlet_bc,
-    neumann=neumann_bc,
-    robin=robin_bc,
+    #neumann=neumann_bc,
+    # robin=robin_bc,
 )
-
-
 #%%
 V0=geometry.cavity_volume()
 Vendo=dolfin.Constant(V0)
 problem = MechanicsProblem_VConst(geometry, material, Vendo, bcs)
-target_activation.vector()[:] = normal_activation_systole[0]
-target_activation.vector()[:] = normal_activation_systole[0]/10
-pulse.iterate.iterate(problem, activation, target_activation)
-u, p, pendo = problem.state.split(deepcopy=True)
-v_current = geometry.cavity_volume(u=u)
-p_current=pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
 
+#%% Output directory for saving the results
+
+outdir = Path("results")
+outdir.mkdir(exist_ok=True, parents=True)
+outname = Path(outdir) / "results.xdmf"
+if outname.is_file():
+    outname.unlink()
+    outname.with_suffix(".h5").unlink()
+    
+outname_mesh = Path(outdir) / "mesh.xdmf"
+if outname.is_file():
+    outname.unlink()
+    outname.with_suffix(".h5").unlink()
+#%%
+vols=[]
+pres=[]
+for t in range(len(normal_activation_systole)):
+    target=normal_activation_systole[t]
+    pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=15)
+    u, p, pendo = problem.state.split(deepcopy=True)
+    v_current=geometry.cavity_volume(u=u)
+    p_current=pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
+    vols.append(v_current)
+    pres.append(p_current)
+    u.t=t
+    pendo.t=t
+    with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+        xdmf.write_checkpoint(u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
+    if p_current>P_ao:
+        break
+
+#%%
+    # deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
+    # V = dolfin.VectorFunctionSpace(deformed_mesh, "Lagrange", 2)
+    # U=dolfin.Function(V)
+    # U.vector()[:] = u.vector()
+    # dolfin.ALE.move(deformed_mesh, U)
+    # # Create a dummy function on the deformed mesh
+    # V_dummy = dolfin.FunctionSpace(deformed_mesh, 'P', 1)
+    # dummy_function = dolfin.Function(V_dummy)
+    # dummy_function.vector()[:] = 0  # Arbitrary values
