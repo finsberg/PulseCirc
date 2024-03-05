@@ -18,10 +18,10 @@ logger = getLogger(__name__)
 t_res=200
 t_span = (0.0, 1.0)
 # Aortic Pressure: the pressure from which the ejection start
-P_ao=12
+P_ao=5
 
 #%%
-class MechanicsProblem_VConst(pulse.MechanicsProblem):
+class MechanicsProblem_modal(pulse.MechanicsProblem):
     """
     Base class for mechanics problem
     """
@@ -30,15 +30,19 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
         self,
         geometry: pulse.Geometry,
         material: pulse.Material,
-        Vendo: dolfin.Constant,
+        control_mode: str,
+        control_value: dolfin.Constant,
         bcs=None,
         bcs_parameters=None,
         solver_parameters=None,
     ):
         logger.debug("Initialize mechanics problem")
+        if control_mode not in ["pressure", "volume"]:
+            raise ValueError("Invalid control mode. Only 'pressure' and 'volume' are allowed.")
         self.geometry = geometry
         self.material = material
-        self.Vendo = Vendo
+        self.control_mode = control_mode
+        self.control_value = control_value
         self._handle_bcs(bcs=bcs, bcs_parameters=bcs_parameters)
 
         # Make sure that the material has microstructure information
@@ -58,9 +62,11 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
 
         P2 = dolfin.VectorElement("Lagrange", mesh.ufl_cell(), 2)
         P1 = dolfin.FiniteElement("Lagrange", mesh.ufl_cell(), 1)
-        R = dolfin.FiniteElement("Real", mesh.ufl_cell(),0)
-
-        self.state_space = dolfin.FunctionSpace(mesh, dolfin.MixedElement([P2,P1,R]))
+        if self.control_mode=='volume':
+            R = dolfin.FiniteElement("Real", mesh.ufl_cell(),0)
+            self.state_space = dolfin.FunctionSpace(mesh, dolfin.MixedElement([P2,P1,R]))
+        else:
+            self.state_space = dolfin.FunctionSpace(mesh, dolfin.MixedElement([P2,P1]))
 
         self.state = dolfin.Function(self.state_space, name="state")
         self.state_test = dolfin.TestFunction(self.state_space)
@@ -68,8 +74,13 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
     def _init_forms(self):
         logger.debug("Initialize forms mechanics problem")
         # Displacement and hydrostatic_pressure
-        u, p, pendo = dolfin.split(self.state)
-        v, q, qendo  = dolfin.split(self.state_test)
+        u=dolfin.split(self.state)[0]
+        p=dolfin.split(self.state)[1]
+        v  = dolfin.split(self.state_test)[0]
+        q  = dolfin.split(self.state_test)[1]
+        if self.control_mode=='volume':
+            pendo=dolfin.split(self.state)[2]
+            qendo  = dolfin.split(self.state_test)[2]
 
         # Some mechanical quantities
         F = dolfin.variable(pulse.kinematics.DeformationGradient(u))
@@ -79,14 +90,19 @@ class MechanicsProblem_VConst(pulse.MechanicsProblem):
         internal_energy = self.material.strain_energy(
             F,
         ) + self.material.compressibility(p, J) 
-
-        volume_constraint=self._inner_volume_constraint(u, pendo, self.Vendo, self.geometry.markers["ENDO"][0])
-
-        self._virtual_work = dolfin.derivative(
+        if self.control_mode=='volume':
+            volume_constraint=self._inner_volume_constraint(u, pendo, self.control_value, self.geometry.markers["ENDO"][0])
+            self._virtual_work = dolfin.derivative(
             internal_energy * dx + volume_constraint,
             self.state,
             self.state_test,
-        )
+            )
+        else:
+            self._virtual_work = dolfin.derivative(
+                internal_energy * dx,
+                self.state,
+                self.state_test,
+            )
 
         external_work = self._external_work(u, v)
         if external_work is not None:
@@ -223,7 +239,7 @@ bcs = pulse.BoundaryConditions(
 #%%
 V0=geometry.cavity_volume()
 Vendo=dolfin.Constant(V0)
-problem = MechanicsProblem_VConst(geometry, material, Vendo, bcs)
+problem = MechanicsProblem_modal(geometry, material, 'volume',Vendo, bcs)
 
 #%% Output directory for saving the results
 
