@@ -1,6 +1,6 @@
 #%%
 from pathlib import Path
-
+import logging
 import cardiac_geometries
 import pulse
 import dolfin
@@ -25,7 +25,6 @@ class MechanicsProblem_modal(pulse.MechanicsProblem):
     """
     Base class for mechanics problem
     """
-
     def __init__(
         self,
         geometry: pulse.Geometry,
@@ -128,9 +127,7 @@ class MechanicsProblem_modal(pulse.MechanicsProblem):
 
         geo = self.geometry
 
-# ???
-# ??? what is the comment about?
-# ???
+
         # ufl doesn't support any measure for duality
         # between two Real spaces, so we have to divide
         # by the total measure of the domain
@@ -227,6 +224,11 @@ def fix_basal_plane(W):
 
 dirichlet_bc = (fix_basal_plane,)
 
+# LV Pressure
+# lvp = dolfin.Constant(0.0)
+# lv_marker = geometry.markers["ENDO"][0]
+# lv_pressure = pulse.NeumannBC(traction=lvp, marker=lv_marker, name="lv")
+# neumann_bc = [lv_pressure]
 
 # Collect boundary conditions
 bcs = pulse.BoundaryConditions(
@@ -236,10 +238,10 @@ bcs = pulse.BoundaryConditions(
 )
 #%%
 # V0=geometry.cavity_volume()
-# Vendo=dolfin.Constant(V0)
+# Vendo=dolfin.Constant(V0, name='volume')
 # problem = MechanicsProblem_modal(geometry, material, 'volume',Vendo, bcs)
-Pendo=.5
-problem = MechanicsProblem_modal(geometry, material, 'pressure',Pendo, bcs)
+Pendo=dolfin.Constant(0, name='pressure')
+problem = MechanicsProblem_modal(geometry, material,'pressure',Pendo, bcs)
 
 #%% Output directory for saving the results
 
@@ -257,16 +259,18 @@ if outname.is_file():
 #%%
 vols=[]
 pres=[]
+pulse.iterate.iterate(problem, Pendo, 0.2, initial_number_of_steps=15)
+
+#%%
 for t in range(len(normal_activation_systole)):
     target=normal_activation_systole[t]
     pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
     u = problem.state.split(deepcopy=True)[0]
-    # u, p, pendo = problem.state.split(deepcopy=True)
-    # v_current=geometry.cavity_volume(u=u)
-    # p_current=pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
-    # vols.append(v_current)
-    # pres.append(p_current)
-    # u.t=t
+    v_current=geometry.cavity_volume(u=u)
+    p_current=Pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
+    vols.append(v_current)
+    pres.append(p_current)
+    u.t=t
     # pendo.t=t
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
@@ -276,11 +280,11 @@ for t in range(len(normal_activation_systole)):
     #     break
 
 #%%
-    # deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
-    # V = dolfin.VectorFunctionSpace(deformed_mesh, "Lagrange", 2)
-    # U=dolfin.Function(V)
-    # U.vector()[:] = u.vector()
-    # dolfin.ALE.move(deformed_mesh, U)
+    deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
+    V = dolfin.VectorFunctionSpace(deformed_mesh, "Lagrange", 2)
+    U=dolfin.Function(V)
+    U.vector()[:] = u.vector()
+    dolfin.ALE.move(deformed_mesh, U)
     # # Create a dummy function on the deformed mesh
     # V_dummy = dolfin.FunctionSpace(deformed_mesh, 'P', 1)
     # dummy_function = dolfin.Function(V_dummy)
