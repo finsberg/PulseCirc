@@ -150,6 +150,36 @@ class MechanicsProblem_modal(pulse.MechanicsProblem):
             L += dolfin.Constant(1.0 / area) * pendo * V * ds_sigma
         # L += pendo * V * ds_sigma
         return L
+    def change_mode_and_reinit(self,new_control_mode: str) -> None:
+        if self.control_mode == new_control_mode:
+            return
+
+        # Save the current state
+        state_old = self.state.copy(True)
+        if self.control_mode=='volume':
+            pendo_old=dolfin.split(self.state)[2]
+            Vendo_old=self.control_value
+            pendo_old_value=pendo_old(self.geometry.mesh.coordinates()[0])
+            self.control_value=dolfin.Constant(pendo_old_value,name='pressure')
+        elif self.control_mode=='pressure':
+            Vendo_old=self.geometry.cavity_volume(u=state_old.sub(0))
+            pendo_old=self.control_value
+            self.control_value=dolfin.Constant(Vendo_old,name='volume')
+
+        # Reinit problem
+        self.control_mode = new_control_mode
+        self._init_spaces()
+        self._init_forms()
+
+        # Assign old values
+        dolfin.assign(self.state.sub(0), state_old.sub(0))
+        dolfin.assign(self.state.sub(1), state_old.sub(1))
+
+        # ???
+        # ??? What is this for?
+        # ???
+        # if self.parameters["bc_type"] not in [BCType.fix_base]:
+        #     dolfin.assign(self.state.sub(2), state_old.sub(2))
 
 #%%
 def get_ellipsoid_geometry(folder=Path("lv")):
@@ -259,7 +289,37 @@ if outname.is_file():
 #%%
 vols=[]
 pres=[]
+point=problem.geometry.mesh.coordinates()[0]
+# Initialization to the atrium pressure of 0.2 kPa
 pulse.iterate.iterate(problem, Pendo, 0.2, initial_number_of_steps=15)
+print(activation(point))
+print(Pendo(point))
+print(geometry.cavity_volume(u=problem.state.sub(0)))
+print('================')
+pulse.iterate.iterate(problem, activation, 1, initial_number_of_steps=15)
+print(activation(point))
+print(Pendo(point))
+print(geometry.cavity_volume(u=problem.state.sub(0)))
+print('================')
+problem.change_mode_and_reinit('volume')
+Vendo=problem.control_value
+pulse.iterate.iterate(problem, activation, 5, initial_number_of_steps=15)
+Pendo=problem.state.sub(2)
+print(activation(point))
+print(Pendo(point))
+print(geometry.cavity_volume(u=problem.state.sub(0)))
+print('================')
+problem.change_mode_and_reinit('pressure')
+pulse.iterate.iterate(problem, activation, 10, initial_number_of_steps=15)
+print(activation(point))
+print(Pendo(point))
+print(geometry.cavity_volume(u=problem.state.sub(0)))
+print('================')
+#%%
+
+problem.change_mode_and_reinit('volume')
+Vendo=problem.control_value
+pulse.iterate.iterate(problem, activation, 2.899188, initial_number_of_steps=15)
 
 #%%
 for t in range(len(normal_activation_systole)):
@@ -278,6 +338,9 @@ for t in range(len(normal_activation_systole)):
         break  
     # if p_current>P_ao:
     #     break
+
+#%%
+
 
 #%%
     deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
