@@ -79,8 +79,12 @@ class MechanicsProblem_modal(pulse.MechanicsProblem):
         v  = dolfin.split(self.state_test)[0]
         q  = dolfin.split(self.state_test)[1]
         if self.control_mode=='volume':
-            pendo=dolfin.split(self.state)[2]
+            Pendo=dolfin.split(self.state)[2]
             qendo  = dolfin.split(self.state_test)[2]
+            Vendo=self.control_value
+        elif self.control_mode=='pressure':
+            Vendo=None
+            Pendo=self.control_value
 
         # Some mechanical quantities
         F = dolfin.variable(pulse.kinematics.DeformationGradient(u))
@@ -90,19 +94,12 @@ class MechanicsProblem_modal(pulse.MechanicsProblem):
         internal_energy = self.material.strain_energy(
             F,
         ) + self.material.compressibility(p, J) 
-        if self.control_mode=='volume':
-            volume_constraint=self._inner_volume_constraint(u, pendo, self.control_value, self.geometry.markers["ENDO"][0])
-            self._virtual_work = dolfin.derivative(
-            internal_energy * dx + volume_constraint,
-            self.state,
-            self.state_test,
-            )
-        else:
-            self._virtual_work = dolfin.derivative(
-                internal_energy * dx,
-                self.state,
-                self.state_test,
-            )
+        volume_constraint=self._inner_volume_constraint(u, Pendo, Vendo, self.geometry.markers["ENDO"][0])
+        self._virtual_work = dolfin.derivative(
+        internal_energy * dx + volume_constraint,
+        self.state,
+        self.state_test,
+        )
 
         external_work = self._external_work(u, v)
         if external_work is not None:
@@ -152,7 +149,8 @@ class MechanicsProblem_modal(pulse.MechanicsProblem):
         V_u = -1 / float(geo.mesh.geometry().dim()) * ufl.inner(x, n)
         
         L = -pendo * V_u * ds_sigma
-        L += dolfin.Constant(1.0 / area) * pendo * V * ds_sigma
+        if V is not None:
+            L += dolfin.Constant(1.0 / area) * pendo * V * ds_sigma
         # L += pendo * V * ds_sigma
         return L
 
@@ -237,9 +235,11 @@ bcs = pulse.BoundaryConditions(
     # robin=robin_bc,
 )
 #%%
-V0=geometry.cavity_volume()
-Vendo=dolfin.Constant(V0)
-problem = MechanicsProblem_modal(geometry, material, 'volume',Vendo, bcs)
+# V0=geometry.cavity_volume()
+# Vendo=dolfin.Constant(V0)
+# problem = MechanicsProblem_modal(geometry, material, 'volume',Vendo, bcs)
+Pendo=.5
+problem = MechanicsProblem_modal(geometry, material, 'pressure',Pendo, bcs)
 
 #%% Output directory for saving the results
 
@@ -259,18 +259,21 @@ vols=[]
 pres=[]
 for t in range(len(normal_activation_systole)):
     target=normal_activation_systole[t]
-    pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=15)
-    u, p, pendo = problem.state.split(deepcopy=True)
-    v_current=geometry.cavity_volume(u=u)
-    p_current=pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
-    vols.append(v_current)
-    pres.append(p_current)
-    u.t=t
-    pendo.t=t
+    pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
+    u = problem.state.split(deepcopy=True)[0]
+    # u, p, pendo = problem.state.split(deepcopy=True)
+    # v_current=geometry.cavity_volume(u=u)
+    # p_current=pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
+    # vols.append(v_current)
+    # pres.append(p_current)
+    # u.t=t
+    # pendo.t=t
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
-    if p_current>P_ao:
-        break
+    if t>10:
+        break  
+    # if p_current>P_ao:
+    #     break
 
 #%%
     # deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
