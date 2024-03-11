@@ -18,7 +18,7 @@ logger = getLogger(__name__)
 t_res=200
 t_span = (0.0, 1.0)
 # Aortic Pressure: the pressure from which the ejection start
-P_ao=5
+P_ao=10
 
 #%%
 class MechanicsProblem_modal(pulse.MechanicsProblem):
@@ -289,59 +289,70 @@ if outname.is_file():
 #%%
 vols=[]
 pres=[]
+# Saving the initial pressure and volume
+v_current=geometry.cavity_volume()
+p_current=0
+vols.append(v_current)
+pres.append(p_current)
 point=problem.geometry.mesh.coordinates()[0]
 # Initialization to the atrium pressure of 0.2 kPa
 pulse.iterate.iterate(problem, Pendo, 0.2, initial_number_of_steps=15)
-print(activation(point))
-print(Pendo(point))
-print(geometry.cavity_volume(u=problem.state.sub(0)))
-print('================')
-pulse.iterate.iterate(problem, activation, 1, initial_number_of_steps=15)
-print(activation(point))
-print(Pendo(point))
-print(geometry.cavity_volume(u=problem.state.sub(0)))
-print('================')
-problem.change_mode_and_reinit('volume')
-Vendo=problem.control_value
-pulse.iterate.iterate(problem, activation, 5, initial_number_of_steps=15)
-Pendo=problem.state.sub(2)
-print(activation(point))
-print(Pendo(point))
-print(geometry.cavity_volume(u=problem.state.sub(0)))
-print('================')
-problem.change_mode_and_reinit('pressure')
-pulse.iterate.iterate(problem, activation, 10, initial_number_of_steps=15)
-print(activation(point))
-print(Pendo(point))
-print(geometry.cavity_volume(u=problem.state.sub(0)))
-print('================')
+v_current=geometry.cavity_volume(u=problem.state.sub(0))
+p_current=Pendo(point)
+vols.append(v_current)
+pres.append(p_current)
 #%%
-
 problem.change_mode_and_reinit('volume')
-Vendo=problem.control_value
-pulse.iterate.iterate(problem, activation, 2.899188, initial_number_of_steps=15)
-
-#%%
 for t in range(len(normal_activation_systole)):
     target=normal_activation_systole[t]
     pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
     u = problem.state.split(deepcopy=True)[0]
-    v_current=geometry.cavity_volume(u=u)
-    p_current=Pendo(dolfin.Point(geometry.mesh.coordinates()[0]))
+    v_current=geometry.cavity_volume(u=problem.state.sub(0))
+    Pendo=problem.state.split(deepcopy=True)[2]
+    p_current=Pendo(point)
     vols.append(v_current)
     pres.append(p_current)
     u.t=t
-    # pendo.t=t
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
-    if t>10:
-        break  
-    # if p_current>P_ao:
-    #     break
-
+    if p_current>P_ao:
+        break
 #%%
-
-
+import copy
+problem.change_mode_and_reinit('pressure')
+t0=copy.copy(t)
+for t in range(t0,len(normal_activation_systole)):
+    target=normal_activation_systole[t]
+    pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
+    u = problem.state.split(deepcopy=True)[0]
+    v_current=geometry.cavity_volume(u=problem.state.sub(0))
+    # Pendo=problem.state.sub(2)
+    p_current=Pendo(point)
+    vols.append(v_current)
+    pres.append(p_current)
+    u.t=t
+    with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+        xdmf.write_checkpoint(u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
+    if target==np.max(normal_activation_systole):
+        break
+    
+#%%
+problem.change_mode_and_reinit('volume')
+t0=copy.copy(t)
+for t in range(t0,len(normal_activation_systole)):
+    target=normal_activation_systole[t]
+    pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
+    u = problem.state.split(deepcopy=True)[0]
+    v_current=geometry.cavity_volume(u=problem.state.sub(0))
+    Pendo=problem.state.split(deepcopy=True)[2]
+    p_current=Pendo(point)
+    vols.append(v_current)
+    pres.append(p_current)
+    u.t=t
+    with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+        xdmf.write_checkpoint(u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
+    if p_current<0.05:
+        break
 #%%
     deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
     V = dolfin.VectorFunctionSpace(deformed_mesh, "Lagrange", 2)
