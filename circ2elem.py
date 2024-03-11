@@ -18,7 +18,7 @@ logger = getLogger(__name__)
 t_res=200
 t_span = (0.0, 1.0)
 # Aortic Pressure: the pressure from which the ejection start
-P_ao=10
+P_ao=5
 
 #%%
 class MechanicsProblem_modal(pulse.MechanicsProblem):
@@ -318,6 +318,27 @@ for t in range(len(normal_activation_systole)):
     if p_current>P_ao:
         break
 #%%
+def WK2(tau,p_old,p_current,R,C):
+    dp=(p_current-p_old)/tau
+    Q1=p_current/R
+    Q2=dp*C
+    return Q1+Q2
+
+def dWK2(fun,tau,p_old,p_current,R,C):
+    eval1=fun(tau,p_old,p_current,R,C)
+    eval2=fun(tau,p_old,p_current*1.01,R,C)
+    return (eval2-eval1)/(p_current*.01)
+
+def dFE(problem,p_current):
+    pulse.iterate.iterate(problem, Pendo, p_current, initial_number_of_steps=15)
+    V1=geometry.cavity_volume(u=problem.state.sub(0))
+    pulse.iterate.iterate(problem, Pendo, p_current*1.01, initial_number_of_steps=15)
+    V2=geometry.cavity_volume(u=problem.state.sub(0))
+    return (V2-V1)/(0.01*p_current)
+tol=0.1
+R=1
+R_wk2=100
+C_wk2=10
 import copy
 problem.change_mode_and_reinit('pressure')
 t0=copy.copy(t)
@@ -328,8 +349,32 @@ for t in range(t0,len(normal_activation_systole)):
     v_current=geometry.cavity_volume(u=problem.state.sub(0))
     # Pendo=problem.state.sub(2)
     p_current=Pendo(point)
-    vols.append(v_current)
-    pres.append(p_current)
+    v0,p0,p_old,tau=v_current,pres[-1],pres[-2],t_eval[t]
+    # initialize the windkessel
+    R=[]
+    Q0=WK2(tau,p_old,p0,R_wk2,C_wk2)
+    V_WK2=v0-Q0*tau
+    V_FE=v0
+    R.append(V_FE-V_WK2)
+    dV_WK2=dWK2(WK2,tau,p_old,p0,R_wk2,C_wk2)
+    dV_FE=dFE(problem, p0)
+    J=dV_FE-dV_WK2
+    p=p0+R[-1]/J
+    k=0
+    while R[-1]>tol and k<100:
+        k+=1
+        pulse.iterate.iterate(problem, Pendo, p, initial_number_of_steps=15)
+        v=geometry.cavity_volume(u=problem.state.sub(0))
+        Q=WK2(tau,p_old,p,R_wk2,C_wk2)
+        V_WK2=v-Q*tau
+        V_FE=v
+        R.append(V_FE-V_WK2)
+        dV_WK2=dWK2(WK2,tau,p_old,p,R_wk2,C_wk2)
+        dV_FE=dFE(problem, p)
+        J=dV_FE-dV_WK2
+        p=p+R[-1]/J
+    vols.append(v)
+    pres.append(p)
     u.t=t
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
