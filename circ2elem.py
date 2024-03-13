@@ -180,6 +180,20 @@ class MechanicsProblem_modal(pulse.MechanicsProblem):
         # ???
         # if self.parameters["bc_type"] not in [BCType.fix_base]:
         #     dolfin.assign(self.state.sub(2), state_old.sub(2))
+        
+    def copy_as_simple_problem(self):
+        # Copying the problem as new simple Mechanics problem, and defining Pendo as Neumann BC. Note that the Pendo in the new problem is a different dolfin.coefficient as we do not want to change the original Pendo
+        # FIXME:  The code can be much simpler if we just use the neumann BC
+        Pendo_value=self.control_value.values()[0]
+        Pendo_new=dolfin.Constant(Pendo_value)
+        lv_pressure = pulse.NeumannBC(traction=Pendo_new, marker=self.geometry.markers["ENDO"][0], name="lv")
+        neumann_bc = [lv_pressure]
+        new_bcs = copy.deepcopy(self.bcs)
+        new_bcs.neumann=neumann_bc
+        new_problem = pulse.MechanicsProblem(self.geometry, self.material, new_bcs)
+        dolfin.assign(new_problem.state.sub(0), self.state.sub(0))
+        dolfin.assign(new_problem.state.sub(1), self.state.sub(1))
+        return new_problem
 
 #%%
 def get_ellipsoid_geometry(folder=Path("lv")):
@@ -318,6 +332,51 @@ for t in range(len(normal_activation_systole)):
     if p_current>P_ao:
         break
 #%%
+def circ(problem,v_current,v_old,p_current,p_old,tau):
+    """
+    Check the v_current and p_current with respect to the circulation model. Then the 
+    problem is updated first with the caluclated pressure and then with the activation.
+    FIXME for now circulation model is hard coded here but it should be an input.
+    
+
+    :pulse.MechanicsProblem problem: The mechanics problem containg the infromation on FE model.
+    :param v_current:   The current calculated volume based on FE model.
+    :param v_old:   The previous calculated volume based on FE model and circulation.
+    :param p_current:   The current calculated pressure based on FE model.
+    :param p_old:       The previous calculated pressure based on FE model and circulation.
+    :param tau:         The time step
+    """
+    Pendo=problem.control_value
+    new_problem=problem.copy_as_simple_problem()
+    # Parameters of Circulation model
+    tol=0.1
+    # R=1
+    R_wk2=0.0007
+    C_wk2=10
+    # initialize the windkessel
+    R=[]
+    Q0=WK2(tau,p_old,p_current,R_wk2,C_wk2)
+    V_WK2=v_current-Q0*tau
+    V_FE=v_current
+    R.append(V_FE-V_WK2)
+    dV_WK2=dWK2(WK2,tau,p_old,p_current,R_wk2,C_wk2)
+    dV_FE=dFE(problem,p_current)
+    J=dV_FE-dV_WK2
+    p_new=p_current+R[-1]/J
+    k=0
+    while R[-1]>tol and k<100:
+        k+=1
+        pulse.iterate.iterate(problem, Pendo, p, initial_number_of_steps=15)
+        v=geometry.cavity_volume(u=problem.state.sub(0))
+        Q=WK2(tau,p_old,p,R_wk2,C_wk2)
+        V_WK2=v-Q*tau
+        V_FE=v
+        R.append(V_FE-V_WK2)
+        dV_WK2=dWK2(WK2,tau,p_old,p,R_wk2,C_wk2)
+        dV_FE=dFE(problem, p)
+        J=dV_FE-dV_WK2
+        p=p+R[-1]/J
+
 def WK2(tau,p_old,p_current,R,C):
     dp=(p_current-p_old)/tau
     Q1=p_current/R
@@ -326,29 +385,44 @@ def WK2(tau,p_old,p_current,R,C):
 
 def dWK2(fun,tau,p_old,p_current,R,C):
     eval1=fun(tau,p_old,p_current,R,C)
-    eval2=fun(tau,p_old,p_current*1.01,R,C)
-    return (eval2-eval1)/(p_current*.01)
+    eval2=fun(tau,p_old,p_current*1.001,R,C)
+    return (eval2-eval1)/(p_current*.001)
 
-def dFE(problem,p_current):
-    pulse.iterate.iterate(problem, Pendo, p_current, initial_number_of_steps=15)
-    V1=geometry.cavity_volume(u=problem.state.sub(0))
-    pulse.iterate.iterate(problem, Pendo, p_current*1.01, initial_number_of_steps=15)
-    V2=geometry.cavity_volume(u=problem.state.sub(0))
-    return (V2-V1)/(0.01*p_current)
-tol=0.1
-R=1
-R_wk2=100
-C_wk2=10
+def dFE(problem,Pendo_value):
+    dummy_problem = problem.copy_as_simple_problem()
+    P_dummy=dummy_problem.bcs.neumann[0].traction
+    P_dummy.rename('dummy_P1','dummy Pendo for dFE')
+    pulse.iterate.iterate(dummy_problem, P_dummy, Pendo_value, initial_number_of_steps=15)
+    V1=geometry.cavity_volume(u=dummy_problem.state.sub(0))
+    dummy_problem_2 = problem.copy_as_simple_problem()
+    P_dummy=dummy_problem_2.bcs.neumann[0].traction
+    P_dummy.rename('dummy_P2','dummy Pendo for dFE')
+    pulse.iterate.iterate(dummy_problem, P_dummy, Pendo_value*1.1, initial_number_of_steps=15)
+    V2=geometry.cavity_volume(u=dummy_problem_2.state.sub(0))
+    return (V2-V1)/(0.1*Pendo_value)
+    # dummy_problem = pulse.MechanicsProblem_modal(problem.geometry, problem.material, problem.bcs)
+    # dolfin.assign(dummy_problem.state.sub(0), problem.state.sub(0))
+    # dolfin.assign(dummy_problem.state.sub(1), problem.state.sub(1))
+    # pulse.iterate.iterate(dummy_problem, Pendo, p_current, initial_number_of_steps=15)
+    # V1=geometry.cavity_volume(u=dummy_problem.state.sub(0))
+    # pulse.iterate.iterate(dummy_problem, Pendo, p_current*1.01, initial_number_of_steps=15)
+    # V2=geometry.cavity_volume(u=dummy_problem.state.sub(0))
+    # return (V2-V1)/(0.01*p_current)
+
 import copy
+#FIXME we need normal pulse for this
 problem.change_mode_and_reinit('pressure')
-t0=copy.copy(t)
-for t in range(t0,len(normal_activation_systole)):
-    target=normal_activation_systole[t]
-    pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
-    u = problem.state.split(deepcopy=True)[0]
-    v_current=geometry.cavity_volume(u=problem.state.sub(0))
-    # Pendo=problem.state.sub(2)
-    p_current=Pendo(point)
+t0=copy.copy(t)+1
+# for t in range(t0,len(normal_activation_systole)):
+t=t0
+target=normal_activation_systole[t]
+pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
+u = problem.state.split(deepcopy=True)[0]
+v_current=geometry.cavity_volume(u=problem.state.sub(0))
+Pendo=problem.control_value
+p_current=Pendo(point)
+p_old,tau,v_old=pres[-1],t_eval[t],vols[-1]
+#%%
     v0,p0,p_old,tau=v_current,pres[-1],pres[-2],t_eval[t]
     # initialize the windkessel
     R=[]
@@ -399,11 +473,16 @@ for t in range(t0,len(normal_activation_systole)):
     if p_current<0.05:
         break
 #%%
-    deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
-    V = dolfin.VectorFunctionSpace(deformed_mesh, "Lagrange", 2)
-    U=dolfin.Function(V)
-    U.vector()[:] = u.vector()
-    dolfin.ALE.move(deformed_mesh, U)
+deformed_mesh= dolfin.Mesh(problem.geometry.mesh)
+V = dolfin.VectorFunctionSpace(deformed_mesh, "Lagrange", 2)
+U=dolfin.Function(V)
+U.vector()[:] = u.vector()
+dolfin.ALE.move(deformed_mesh, U)
+
+from fenics_plotly import plot
+fig = plot(deformed_mesh, color="red", opacity=0.3, show=False)
+fig.add_plot(plot(problem.geometry.mesh, opacity=0.3, show=False))
+fig.show()    
     # # Create a dummy function on the deformed mesh
     # V_dummy = dolfin.FunctionSpace(deformed_mesh, 'P', 1)
     # dummy_function = dolfin.Function(V_dummy)
