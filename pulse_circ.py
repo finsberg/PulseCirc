@@ -159,11 +159,11 @@ def dV_FE(problem):
             dummy_problem.solve()
             flag_solved=True
         except pulse.mechanicsproblem.SolverDidNotConverge:
-            print("******* Derivation is not Convering *******")
             dummy_problem=copy_problem(problem,lvp_name='dummy LV Pressure')
             dummy_problem.solve()
             dummy_lvp=get_lvp_from_problem(dummy_problem)
             dp=dp*2
+            print(f"Derivation not Converged, increasin the dp to : {dp}")
             k+=1
         
     # pulse.iterate.iterate(dummy_problem, dummy_lvp, p_new, initial_number_of_steps=5)
@@ -207,12 +207,15 @@ def get_lvv_from_problem(problem):
 
 #%%
 for t in range(len(normal_activation_systole)):
+    print('================================')
+    print("Applying Contraction...")
     target_activation=normal_activation_systole[t]
-    pulse.iterate.iterate(problem, activation, target_activation, initial_number_of_steps=5)
+    pulse.iterate.iterate(problem, activation, target_activation)
+    print('================================')
+    print("Finding the corresponding LV pressure...")
     #### Circulation
     R=[]
     circ_iter=0
-    
     # initial guess for new pressure
     if t==0:
         p_current=p_current*1.01
@@ -225,33 +228,30 @@ for t in range(len(normal_activation_systole)):
     v_old=vols[-1]
     tol=0.0001*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
-        old_state = problem_circ.state.copy(deepcopy=True)
-        lvp_circ.assign(p_current)
-        try:
-            problem_circ.solve()
-        except pulse.mechanicsproblem.SolverDidNotConverge:
-            print("******* Solution is not Convering *******")
-            print("*****************************************")
-            # Resetting back the problem to the latest working state
-            # problem_circ.state.assign(old_state)
-            # lvp_circ.assign(p_current)
-            problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
-            lvp_circ=get_lvp_from_problem(problem_circ)
-            pi=0
-            p_steps=5
-            k=0
-            while not pi==p_current and k<5:
-                for pi in np.linspace(float(lvp_circ), p_current, p_steps):
-                    print(pi)
+        # old_state = problem_circ.state.copy(deepcopy=True)
+        # lvp_circ.assign(p_current)
+        pi=0
+        p_steps=2
+        k=0
+        flag_solved=False
+        while k<10 and not flag_solved:
+            p_list=np.linspace(float(lvp_circ), p_current, p_steps)[1:]
+            for pi in p_list:
+                print(pi)
+                try:
                     lvp_circ.assign(pi)
-                    try:
-                        problem_circ.solve()
-                    except pulse.mechanicsproblem.SolverDidNotConverge:
-                        problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
-                        lvp_circ=get_lvp_from_problem(problem_circ)
-                        p_steps=p_steps*2
-                        k+=1
-                        break;
+                    problem_circ.solve()
+                    lvp_circ=get_lvp_from_problem(problem_circ)
+                    flag_solved=True
+                    # pulse.iterate.iterate(problem_circ, lvp_circ, pi)
+                except pulse.mechanicsproblem.SolverDidNotConverge:
+                    problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
+                    lvp_circ=get_lvp_from_problem(problem_circ)
+                    p_steps+=1
+                    k+=1
+                    flag_solved=False
+                    print(f"Problem not Converged, increasin the steps to : {p_steps}")
+                    break;
         v_current=get_lvv_from_problem(problem_circ)
         Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
         v_fe=v_current
@@ -266,10 +266,11 @@ for t in range(len(normal_activation_systole)):
     v_current=get_lvv_from_problem(problem)
     vols.append(v_current)
     pres.append(p_current)
-    print('================================')
-    print(R)
-    print(pres)
-    print(vols)
+    # print('================================')
+    # print(f"Time Step: {t}, is converged with Circulation Residuals of : {R}")
+    print(f"Time Step: {t} is converged")
+    # print(f"The pressures are : {pres}")
+    # print(f"The volumes are : {vols}")
     print('================================')
     if t>10:
         break
