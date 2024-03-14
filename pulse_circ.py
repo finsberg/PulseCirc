@@ -58,6 +58,9 @@ normal_activation = (
 systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
 t_eval_systole=t_eval[systole_ind:]
+# make a simple activation for testing
+normal_activation_systole=np.linspace(0,100,200)
+t_eval_systole=np.linspace(0,0.5,200)
 # %% Defining activation as dolfin.constant
 
 activation = dolfin.Constant(0.0, name='gamma')
@@ -125,7 +128,7 @@ p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
 # %%
-tau=t_eval[1]
+tau=t_eval_systole[1]
 p_ao=1
 
 #%%
