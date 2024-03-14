@@ -176,6 +176,10 @@ def copy_problem(problem,lvp_name=None):
         dolfin.assign(new_problem.state.sub(1), problem.state.sub(1))
         return new_problem
 
+def get_lvp_from_problem(problem):
+    # getting the LV pressure which is assinged as Neumann BC from a Pulse.MechanicsProblem
+    return problem.bcs.neumann[0].traction
+
 #%%
 for t in range(len(normal_activation_systole)):
     target_activation=normal_activation_systole[t]
