@@ -136,16 +136,38 @@ def WK2(tau,p_ao,p_old,p_current,R,C):
     else:
         Q=0
     return Q
-def dV_FE(problem,p):
-    #u_0=problem.state.split(deepcopy=True)[0]
-    p_old=p.values()[0]
-    v_old=geometry.cavity_volume(u=problem.state.sub(0))
-    p_new=p_old*1.001
-    pulse.iterate.iterate(problem, lvp, p_new, initial_number_of_steps=5)
-    v_new=geometry.cavity_volume(u=problem.state.sub(0))
-    #u_1=problem.state.split(deepcopy=True)[0]
-    pulse.iterate.iterate(problem, lvp, p_old, initial_number_of_steps=5)
-    #u_2=problem.state.split(deepcopy=True)[0]
+def dV_FE(problem):
+    """
+    Calculating the dV/dP based on FE model. 
+    
+    :pulse.MechanicsProblem problem:    The mechanics problem containg the infromation on FE model.
+    
+    """
+    lvp=get_lvp_from_problem(problem)
+    p_old=lvp.values()[0]
+    v_old=get_lvv_from_problem(problem)
+    dummy_problem=copy_problem(problem,lvp_name='dummy LV Pressure')
+    dummy_problem.solve()
+    dummy_lvp=get_lvp_from_problem(dummy_problem)
+    dp=0.0001
+    k=0
+    flag_solved=False
+    while (not flag_solved) and k<10:
+        try:
+            p_new=p_old+dp
+            dummy_lvp.assign(p_new)
+            dummy_problem.solve()
+            flag_solved=True
+        except pulse.mechanicsproblem.SolverDidNotConverge:
+            print("******* Derivation is not Convering *******")
+            dummy_problem=copy_problem(problem,lvp_name='dummy LV Pressure')
+            dummy_problem.solve()
+            dummy_lvp=get_lvp_from_problem(dummy_problem)
+            dp=dp*2
+            k+=1
+        
+    # pulse.iterate.iterate(dummy_problem, dummy_lvp, p_new, initial_number_of_steps=5)
+    v_new=get_lvv_from_problem(dummy_problem)
     dVdp=(v_new-v_old)/(p_new-p_old)
     return dVdp
     
@@ -179,6 +201,9 @@ def copy_problem(problem,lvp_name=None):
 def get_lvp_from_problem(problem):
     # getting the LV pressure which is assinged as Neumann BC from a Pulse.MechanicsProblem
     return problem.bcs.neumann[0].traction
+def get_lvv_from_problem(problem):
+    # getting the LV volume from a Pulse.MechanicsProblem and its solution
+    return problem.geometry.cavity_volume(u=problem.state.sub(0))
 
 #%%
 for t in range(len(normal_activation_systole)):
@@ -187,30 +212,65 @@ for t in range(len(normal_activation_systole)):
     #### Circulation
     R=[]
     circ_iter=0
-    tol=0.1
+    
     # initial guess for new pressure
     if t==0:
         p_current=p_current*1.01
     else:
         p_current=p_current+(p_current-pres[-2])
+    problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
+    lvp_circ=get_lvp_from_problem(problem_circ)
+    problem_circ.solve()
+    p_old=pres[-1]
+    v_old=vols[-1]
+    tol=0.0001*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
-        pulse.iterate.iterate(problem, lvp, p_current, initial_number_of_steps=15)
-        v_current=geometry.cavity_volume(u=problem.state.sub(0))
-        p_old=pres[-1]
-        v_old=vols[-1]
+        old_state = problem_circ.state.copy(deepcopy=True)
+        lvp_circ.assign(p_current)
+        try:
+            problem_circ.solve()
+        except pulse.mechanicsproblem.SolverDidNotConverge:
+            print("******* Solution is not Convering *******")
+            print("*****************************************")
+            # Resetting back the problem to the latest working state
+            # problem_circ.state.assign(old_state)
+            # lvp_circ.assign(p_current)
+            problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
+            lvp_circ=get_lvp_from_problem(problem_circ)
+            pi=0
+            p_steps=5
+            k=0
+            while not pi==p_current and k<5:
+                for pi in np.linspace(float(lvp_circ), p_current, p_steps):
+                    print(pi)
+                    lvp_circ.assign(pi)
+                    try:
+                        problem_circ.solve()
+                    except pulse.mechanicsproblem.SolverDidNotConverge:
+                        problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
+                        lvp_circ=get_lvp_from_problem(problem_circ)
+                        p_steps=p_steps*2
+                        k+=1
+                        break;
+        v_current=get_lvv_from_problem(problem_circ)
         Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
         v_fe=v_current
         v_circ=v_old-Q
         R.append(v_fe-v_circ)
-        dVFE_dP=dV_FE(problem,lvp)
+        dVFE_dP=dV_FE(problem_circ)
         dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
         J=dVFE_dP+dQCirc_dP
         p_current=p_current-R[-1]/J
         circ_iter+=1
-    pulse.iterate.iterate(problem, lvp, p_current, initial_number_of_steps=5)
-    v_current=geometry.cavity_volume(u=problem.state.sub(0))
+    pulse.iterate.iterate(problem, lvp, p_current)
+    v_current=get_lvv_from_problem(problem)
     vols.append(v_current)
     pres.append(p_current)
+    print('================================')
+    print(R)
+    print(pres)
+    print(vols)
+    print('================================')
     if t>10:
         break
     
