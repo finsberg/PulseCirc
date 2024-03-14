@@ -59,8 +59,8 @@ systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
 t_eval_systole=t_eval[systole_ind:]
 # make a simple activation for testing
-normal_activation_systole=np.linspace(0,100,200)
-t_eval_systole=np.linspace(0,0.5,200)
+normal_activation_systole=np.linspace(0,50,200)[1:]
+t_eval_systole=np.linspace(0,0.5,200)[1:]
 # %% Defining activation as dolfin.constant
 
 activation = dolfin.Constant(0.0, name='gamma')
@@ -181,7 +181,12 @@ def dV_WK2(fun,tau,p_old,p_current,R,C):
 
 def copy_problem(problem,lvp_name=None):
         # FIXME Add it to the class
+        # FIXME This is hardcoded with BC. The issue is that when you copy the geo then the BC should be now specified
         # Copying the problem as new simple Mechanics problem, and defining a new Coefficient for Neumann BC. Note that the Coefficient in the new problem is a different dolfin.coefficient as we do not want to change the original Pendo
+        new_mat=problem.material.copy()
+        #new_geo=problem.geometry.copy()
+        new_geo=problem.geometry
+        # --------- Neumann BC ----------------
         lvp=problem.bcs.neumann[0].traction
         lvp_value=lvp.values()[0]
         if lvp_name==None:
@@ -189,15 +194,22 @@ def copy_problem(problem,lvp_name=None):
         lvp_new=dolfin.Constant(lvp_value,name=lvp_name)
         lv_pressure = pulse.NeumannBC(traction=lvp_new, marker=problem.geometry.markers["ENDO"][0], name="lv")
         new_bcs_neumann = [lv_pressure]
-        new_bcs_dirichlet = copy.deepcopy(problem.bcs.dirichlet)
-        new_bcs_robin = copy.deepcopy(problem.bcs.robin)
+        # --------- Dirichlet BC ----------------
+        def fix_basal_plane(W):
+            V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
+            bc = dolfin.DirichletBC(
+                V.sub(0),
+                dolfin.Constant(0.0),
+                geometry.ffun,
+                geometry.markers["BASE"][0],
+            )
+            return bc
+        new_bcs_dirichlet = (fix_basal_plane,)
         new_bcs = pulse.BoundaryConditions(
             dirichlet=new_bcs_dirichlet,
             neumann=new_bcs_neumann,
-            robin=new_bcs_robin,
         )
-        new_mat=problem.material.copy()
-        new_geo=problem.geometry.copy()
+        # --------- New Problem ----------------
         new_problem = pulse.MechanicsProblem(new_geo, new_mat, new_bcs)
         dolfin.assign(new_problem.state.sub(0), problem.state.sub(0))
         dolfin.assign(new_problem.state.sub(1), problem.state.sub(1))
@@ -267,8 +279,9 @@ for t in range(len(normal_activation_systole)):
         J=dVFE_dP+dQCirc_dP
         p_current=p_current-R[-1]/J
         circ_iter+=1
-    # Assing the new state (from problem_circ) to the proble to use as estimation for iterate problem
+    # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
     problem.state.assign(problem_circ.state)
+    p_current=get_lvp_from_problem(problem_circ).values()[0]
     lvp.assign(p_current)
     problem.solve()
     #pulse.iterate.iterate(problem, lvp, p_current)
