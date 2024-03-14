@@ -7,6 +7,7 @@ import dolfin
 import ufl_legacy as ufl
 from pulse.solver import NonlinearSolver
 from pulse.solver import NonlinearProblem
+import copy
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -152,6 +153,28 @@ def dV_WK2(fun,tau,p_old,p_current,R,C):
     eval1=fun(tau,p_ao,p_old,p_current,R,C)
     eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C)
     return (eval2-eval1)/(p_current*.01)
+
+def copy_problem(problem,lvp_name=None):
+        # FIXME Add it to the class
+        # Copying the problem as new simple Mechanics problem, and defining a new Coefficient for Neumann BC. Note that the Coefficient in the new problem is a different dolfin.coefficient as we do not want to change the original Pendo
+        lvp=problem.bcs.neumann[0].traction
+        lvp_value=lvp.values()[0]
+        if lvp_name==None:
+            lvp_name=lvp.name()+'_new'
+        lvp_new=dolfin.Constant(lvp_value,name=lvp_name)
+        lv_pressure = pulse.NeumannBC(traction=lvp_new, marker=problem.geometry.markers["ENDO"][0], name="lv")
+        new_bcs_neumann = [lv_pressure]
+        new_bcs_dirichlet = copy.deepcopy(problem.bcs.dirichlet)
+        new_bcs_robin = copy.deepcopy(problem.bcs.robin)
+        new_bcs = pulse.BoundaryConditions(
+            dirichlet=new_bcs_dirichlet,
+            neumann=new_bcs_neumann,
+            robin=new_bcs_robin,
+        )
+        new_problem = pulse.MechanicsProblem(problem.geometry, problem.material, new_bcs)
+        dolfin.assign(new_problem.state.sub(0), problem.state.sub(0))
+        dolfin.assign(new_problem.state.sub(1), problem.state.sub(1))
+        return new_problem
 
 #%%
 for t in range(len(normal_activation_systole)):
