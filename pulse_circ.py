@@ -196,7 +196,9 @@ def copy_problem(problem,lvp_name=None):
             neumann=new_bcs_neumann,
             robin=new_bcs_robin,
         )
-        new_problem = pulse.MechanicsProblem(problem.geometry, problem.material, new_bcs)
+        new_mat=problem.material.copy()
+        new_geo=problem.geometry.copy()
+        new_problem = pulse.MechanicsProblem(new_geo, new_mat, new_bcs)
         dolfin.assign(new_problem.state.sub(0), problem.state.sub(0))
         dolfin.assign(new_problem.state.sub(1), problem.state.sub(1))
         return new_problem
@@ -223,7 +225,7 @@ for t in range(len(normal_activation_systole)):
     if t==0:
         p_current=p_current*1.01
     else:
-        p_current=p_current+(p_current-pres[-2])
+        p_current=pres[-1]+(pres[-1]-pres[-2])
     problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
     lvp_circ=get_lvp_from_problem(problem_circ)
     problem_circ.solve()
@@ -265,7 +267,11 @@ for t in range(len(normal_activation_systole)):
         J=dVFE_dP+dQCirc_dP
         p_current=p_current-R[-1]/J
         circ_iter+=1
-    pulse.iterate.iterate(problem, lvp, p_current)
+    # Assing the new state (from problem_circ) to the proble to use as estimation for iterate problem
+    problem.state.assign(problem_circ.state)
+    lvp.assign(p_current)
+    problem.solve()
+    #pulse.iterate.iterate(problem, lvp, p_current)
     v_current=get_lvv_from_problem(problem)
     vols.append(v_current)
     pres.append(p_current)
