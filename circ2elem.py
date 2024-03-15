@@ -332,6 +332,24 @@ for t in range(len(normal_activation_systole)):
     if p_current>P_ao:
         break
 #%%
+def copy_simple_problem(simple_problem):
+        # Copying the problem as new simple Mechanics problem, and defining Pendo as Neumann BC. Note that the Pendo in the new problem is a different dolfin.coefficient as we do not want to change the original Pendo
+        # FIXME:  The code can be much simpler if we just use the neumann BC
+        Pendo_value=simple_problem.bcs.neumann[0].traction.values()[0]
+        Pendo_new=dolfin.Constant(Pendo_value)
+        lv_pressure = pulse.NeumannBC(traction=Pendo_new, marker=simple_problem.geometry.markers["ENDO"][0], name="lv")
+        neumann_bc = [lv_pressure]
+        new_bcs_dirichlet = copy.deepcopy(simple_problem.bcs.dirichlet)
+        new_bcs = pulse.BoundaryConditions(
+            dirichlet=new_bcs_dirichlet,
+            neumann=neumann_bc,
+            # robin=robin_bc,
+        )
+        new_simple_problem = pulse.MechanicsProblem(simple_problem.geometry, simple_problem.material, new_bcs)
+        dolfin.assign(new_simple_problem.state.sub(0), simple_problem.state.sub(0))
+        dolfin.assign(new_simple_problem.state.sub(1), simple_problem.state.sub(1))
+        return new_simple_problem
+#%%
 def circ(problem,v_current,v_old,p_current,p_old,tau):
     """
     Check the v_current and p_current with respect to the circulation model. Then the 
@@ -341,41 +359,42 @@ def circ(problem,v_current,v_old,p_current,p_old,tau):
 
     :pulse.MechanicsProblem problem: The mechanics problem containg the infromation on FE model.
     :param v_current:   The current calculated volume based on FE model.
-    :param v_old:   The previous calculated volume based on FE model and circulation.
+    :param v_old:       The previous calculated volume based on FE model and circulation.
     :param p_current:   The current calculated pressure based on FE model.
     :param p_old:       The previous calculated pressure based on FE model and circulation.
     :param tau:         The time step
     """
-    Pendo=problem.control_value
-    new_problem=problem.copy_as_simple_problem()
     # Parameters of Circulation model
+    new_problem=problem.copy_as_simple_problem()
     tol=0.1
-    # R=1
-    R_wk2=0.0007
+    R_wk2=0.001
     C_wk2=10
     # initialize the windkessel
     R=[]
-    Q0=WK2(tau,p_old,p_current,R_wk2,C_wk2)
-    V_WK2=v_current-Q0*tau
+    Q0=WK2(tau,p_old,p_current,R_wk2,C_wk2)*tau
+    V_WK2=v_current-Q0
     V_FE=v_current
     R.append(V_FE-V_WK2)
     dV_WK2=dWK2(WK2,tau,p_old,p_current,R_wk2,C_wk2)
-    dV_FE=dFE(problem,p_current)
-    J=dV_FE-dV_WK2
-    p_new=p_current+R[-1]/J
+    dV_FE=dFE(new_problem,p_current)
+    J=dV_FE+dV_WK2
+    p_new=p_current-R[-1]/J
     k=0
-    while R[-1]>tol and k<100:
+    while R[-1]>tol and k<10:
         k+=1
-        pulse.iterate.iterate(problem, Pendo, p, initial_number_of_steps=15)
-        v=geometry.cavity_volume(u=problem.state.sub(0))
-        Q=WK2(tau,p_old,p,R_wk2,C_wk2)
-        V_WK2=v-Q*tau
-        V_FE=v
+        new_problem=problem.copy_as_simple_problem()
+        Pendo_dummy=new_problem.bcs.neumann[0].traction
+        Pendo_dummy.rename('Pendo_dummy','dummy Pendo for Newton method')
+        pulse.iterate.iterate(new_problem, Pendo_dummy, p_new, initial_number_of_steps=15)
+        v_new=geometry.cavity_volume(u=new_problem.state.sub(0))
+        Q=WK2(tau,p_current,p_new,R_wk2,C_wk2)*tau
+        V_WK2=v_new-Q
+        V_FE=v_new
         R.append(V_FE-V_WK2)
-        dV_WK2=dWK2(WK2,tau,p_old,p,R_wk2,C_wk2)
-        dV_FE=dFE(problem, p)
-        J=dV_FE-dV_WK2
-        p=p+R[-1]/J
+        dV_WK2=dWK2(WK2,tau,p_current,p_new,R_wk2,C_wk2)
+        dV_FE=dFE(new_problem, p_new)
+        J=dV_FE+dV_WK2
+        p_new=p_new-R[-1]/J
 
 def WK2(tau,p_old,p_current,R,C):
     dp=(p_current-p_old)/tau
@@ -389,17 +408,17 @@ def dWK2(fun,tau,p_old,p_current,R,C):
     return (eval2-eval1)/(p_current*.001)
 
 def dFE(problem,Pendo_value):
-    dummy_problem = problem.copy_as_simple_problem()
+    dummy_problem = copy_simple_problem(problem)
     P_dummy=dummy_problem.bcs.neumann[0].traction
     P_dummy.rename('dummy_P1','dummy Pendo for dFE')
     pulse.iterate.iterate(dummy_problem, P_dummy, Pendo_value, initial_number_of_steps=15)
     V1=geometry.cavity_volume(u=dummy_problem.state.sub(0))
-    dummy_problem_2 = problem.copy_as_simple_problem()
+    dummy_problem_2 = copy_simple_problem(problem)
     P_dummy=dummy_problem_2.bcs.neumann[0].traction
     P_dummy.rename('dummy_P2','dummy Pendo for dFE')
-    pulse.iterate.iterate(dummy_problem, P_dummy, Pendo_value*1.1, initial_number_of_steps=15)
+    pulse.iterate.iterate(dummy_problem, P_dummy, Pendo_value*1.01, initial_number_of_steps=15)
     V2=geometry.cavity_volume(u=dummy_problem_2.state.sub(0))
-    return (V2-V1)/(0.1*Pendo_value)
+    return (V2-V1)/(0.01*Pendo_value)
     # dummy_problem = pulse.MechanicsProblem_modal(problem.geometry, problem.material, problem.bcs)
     # dolfin.assign(dummy_problem.state.sub(0), problem.state.sub(0))
     # dolfin.assign(dummy_problem.state.sub(1), problem.state.sub(1))
@@ -413,16 +432,15 @@ import copy
 #FIXME we need normal pulse for this
 problem.change_mode_and_reinit('pressure')
 t0=copy.copy(t)+1
-# for t in range(t0,len(normal_activation_systole)):
-t=t0
-target=normal_activation_systole[t]
-pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
-u = problem.state.split(deepcopy=True)[0]
-v_current=geometry.cavity_volume(u=problem.state.sub(0))
-Pendo=problem.control_value
-p_current=Pendo(point)
-p_old,tau,v_old=pres[-1],t_eval[t],vols[-1]
-#%%
+for t in range(t0,len(normal_activation_systole)):
+#t=t0
+    target=normal_activation_systole[t]
+    pulse.iterate.iterate(problem, activation, target, initial_number_of_steps=5)
+    u = problem.state.split(deepcopy=True)[0]
+    v_current=geometry.cavity_volume(u=problem.state.sub(0))
+    Pendo=problem.control_value
+    p_current=Pendo(point)
+    p_old,tau,v_old=pres[-1],t_eval[t],vols[-1]
     v0,p0,p_old,tau=v_current,pres[-1],pres[-2],t_eval[t]
     # initialize the windkessel
     R=[]
