@@ -146,32 +146,40 @@ def dV_FE(problem):
     :pulse.MechanicsProblem problem:    The mechanics problem containg the infromation on FE model.
     
     """
+    #
+    #  Backup the problem
+    state_backup_dv = problem.state.copy(deepcopy=True)
+    lvp_value_backup_dv=get_lvp_from_problem(problem).values()[0]
+    #
+    #
     lvp=get_lvp_from_problem(problem)
     p_old=lvp.values()[0]
     v_old=get_lvv_from_problem(problem)
-    dummy_problem=copy_problem(problem,lvp_name='dummy LV Pressure')
-    dummy_problem.solve()
-    dummy_lvp=get_lvp_from_problem(dummy_problem)
-    dp=0.0001
+    dp0=0.001*p_old
+    dp=dp0
     k=0
     flag_solved=False
-    while (not flag_solved) and k<10:
+    while (not flag_solved) and k<20:
         try:
             p_new=p_old+dp
-            dummy_lvp.assign(p_new)
-            dummy_problem.solve()
+            lvp.assign(p_new)
+            problem.solve()
             flag_solved=True
         except pulse.mechanicsproblem.SolverDidNotConverge:
-            dummy_problem=copy_problem(problem,lvp_name='dummy LV Pressure')
-            dummy_problem.solve()
-            dummy_lvp=get_lvp_from_problem(dummy_problem)
-            dp=dp*2
+            problem.state.assign(state_backup_dv)
+            lvp.assign(lvp_value_backup_dv)
+            # problem.solve()
+            dp+=dp0
             print(f"Derivation not Converged, increasin the dp to : {dp}")
             k+=1
         
     # pulse.iterate.iterate(dummy_problem, dummy_lvp, p_new, initial_number_of_steps=5)
-    v_new=get_lvv_from_problem(dummy_problem)
+    v_new=get_lvv_from_problem(problem)
     dVdp=(v_new-v_old)/(p_new-p_old)
+    problem.state.assign(state_backup_dv)
+    lvp.assign(lvp_value_backup_dv)
+    # FIXME: I think we need to solve the problem here too
+    # problem.solve()
     return dVdp
     
 def dV_WK2(fun,tau,p_old,p_current,R,C):
@@ -179,41 +187,7 @@ def dV_WK2(fun,tau,p_old,p_current,R,C):
     eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C)
     return (eval2-eval1)/(p_current*.01)
 
-def copy_problem(problem,lvp_name=None):
-        # FIXME Add it to the class
-        # FIXME This is hardcoded with BC. The issue is that when you copy the geo then the BC should be now specified
-        # Copying the problem as new simple Mechanics problem, and defining a new Coefficient for Neumann BC. Note that the Coefficient in the new problem is a different dolfin.coefficient as we do not want to change the original Pendo
-        new_mat=problem.material.copy()
-        #new_geo=problem.geometry.copy()
-        new_geo=problem.geometry
-        # --------- Neumann BC ----------------
-        lvp=problem.bcs.neumann[0].traction
-        lvp_value=lvp.values()[0]
-        if lvp_name==None:
-            lvp_name=lvp.name()+'_new'
-        lvp_new=dolfin.Constant(lvp_value,name=lvp_name)
-        lv_pressure = pulse.NeumannBC(traction=lvp_new, marker=problem.geometry.markers["ENDO"][0], name="lv")
-        new_bcs_neumann = [lv_pressure]
-        # --------- Dirichlet BC ----------------
-        def fix_basal_plane(W):
-            V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-            bc = dolfin.DirichletBC(
-                V.sub(0),
-                dolfin.Constant(0.0),
-                geometry.ffun,
-                geometry.markers["BASE"][0],
-            )
-            return bc
-        new_bcs_dirichlet = (fix_basal_plane,)
-        new_bcs = pulse.BoundaryConditions(
-            dirichlet=new_bcs_dirichlet,
-            neumann=new_bcs_neumann,
-        )
-        # --------- New Problem ----------------
-        new_problem = pulse.MechanicsProblem(new_geo, new_mat, new_bcs)
-        dolfin.assign(new_problem.state.sub(0), problem.state.sub(0))
-        dolfin.assign(new_problem.state.sub(1), problem.state.sub(1))
-        return new_problem
+
 
 def get_lvp_from_problem(problem):
     # getting the LV pressure which is assinged as Neumann BC from a Pulse.MechanicsProblem
@@ -231,60 +205,62 @@ for t in range(len(normal_activation_systole)):
     print('================================')
     print("Finding the corresponding LV pressure...")
     #### Circulation
-    R=[]
     circ_iter=0
     # initial guess for new pressure
     if t==0:
         p_current=p_current*1.01
     else:
         p_current=pres[-1]+(pres[-1]-pres[-2])
-    problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
-    lvp_circ=get_lvp_from_problem(problem_circ)
-    problem_circ.solve()
+    #
+    #  Backup the problem
+    state_backup = problem.state.copy(deepcopy=True)
+    lvp_value_backup=get_lvp_from_problem(problem).values()[0]
+    #
+    #
+    problem.solve()
     p_old=pres[-1]
     v_old=vols[-1]
+    R=[]
     tol=0.0001*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
-        # old_state = problem_circ.state.copy(deepcopy=True)
-        # lvp_circ.assign(p_current)
         pi=0
         p_steps=2
         k=0
         flag_solved=False
         while k<10 and not flag_solved:
-            p_list=np.linspace(float(lvp_circ), p_current, p_steps)[1:]
+            p_list=np.linspace(float(lvp), p_current, p_steps)[1:]
             for pi in p_list:
                 print(pi)
                 try:
-                    lvp_circ.assign(pi)
-                    problem_circ.solve()
-                    lvp_circ=get_lvp_from_problem(problem_circ)
+                    lvp.assign(pi)
+                    problem.solve()
                     flag_solved=True
-                    # pulse.iterate.iterate(problem_circ, lvp_circ, pi)
                 except pulse.mechanicsproblem.SolverDidNotConverge:
-                    problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
-                    lvp_circ=get_lvp_from_problem(problem_circ)
+                    problem.state.assign(state_backup)
+                    lvp.assign(lvp_value_backup)
+                    problem.solve()
                     p_steps+=1
                     k+=1
                     flag_solved=False
-                    print(f"Problem not Converged, increasin the steps to : {p_steps}")
+                    print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
                     break;
-        v_current=get_lvv_from_problem(problem_circ)
+        v_current=get_lvv_from_problem(problem)
         Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
         v_fe=v_current
         v_circ=v_old-Q
         R.append(v_fe-v_circ)
-        dVFE_dP=dV_FE(problem_circ)
-        dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
-        J=dVFE_dP+dQCirc_dP
-        p_current=p_current-R[-1]/J
-        circ_iter+=1
+        if np.abs(R[-1])>tol:
+            dVFE_dP=dV_FE(problem)
+            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
+            J=dVFE_dP+dQCirc_dP
+            p_current=p_current-R[-1]/J
+            circ_iter+=1
     # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
-    problem.state.assign(problem_circ.state)
-    p_current=get_lvp_from_problem(problem_circ).values()[0]
-    lvp.assign(p_current)
-    problem.solve()
-    #pulse.iterate.iterate(problem, lvp, p_current)
+    # problem.state.assign(problem_circ.state)
+    p_current=get_lvp_from_problem(problem).values()[0]
+    # lvp.assign(p_current)
+    # problem.solve()
+    # pulse.iterate.iterate(problem, lvp, p_current)
     v_current=get_lvv_from_problem(problem)
     vols.append(v_current)
     pres.append(p_current)
