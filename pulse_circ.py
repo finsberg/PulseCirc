@@ -270,6 +270,10 @@ for t in range(len(normal_activation_systole)):
     # print(f"The pressures are : {pres}")
     # print(f"The volumes are : {vols}")
     print('================================')
+    reults_u, p = problem.state.split(deepcopy=True)
+    reults_u.t=t
+    with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+        xdmf.write_checkpoint(reults_u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
     if t>10:
         break
     
