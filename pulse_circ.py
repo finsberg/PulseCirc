@@ -33,7 +33,7 @@ def get_ellipsoid_geometry(folder=Path("lv")):
         )
 
     geo = cardiac_geometries.geometry.Geometry.from_folder(folder)
-    marker_functions = pulse.MarkerFunctions(cfun=geo.cfun, ffun=geo.ffun)
+    marker_functions = pulse.MarkerFunctions(cfun=geo.cfun, ffun=geo.ffun, efun=geo.efun)
     microstructure = pulse.Microstructure(f0=geo.f0, s0=geo.s0, n0=geo.n0)
     return pulse.HeartGeometry(
         mesh=geo.mesh,
@@ -89,6 +89,26 @@ def fix_basal_plane(W):
     )
     return bc
 
+def fix_basal_endo_ring(W):
+    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
+    bc = dolfin.DirichletBC(
+        V,
+        dolfin.Constant((0.0,0.0,0.0)),
+        geometry.efun,
+        geometry.markers["ENDORING"][0],
+        method = "pointwise",
+    )
+    return bc
+
+print(dir(fix_basal_endo_ring))
+for edge in dolfin.edges(geometry.mesh):
+    radius=0
+    if geometry.efun[edge]==geometry.markers['ENDORING'][0]:
+        for vertex in dolfin.vertices(edge):
+            r=np.sqrt(vertex.point().array()[1]**2+vertex.point().array()[2]**2)
+            radius+=r
+            print(vertex.point().array()[0])
+            
 dirichlet_bc = (fix_basal_plane,)
 
 # LV Pressure
