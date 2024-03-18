@@ -53,7 +53,7 @@ normal_activation = (
         t_eval=t_eval,
         parameters=normal_activation_params,
     )
-    / 1000.0
+    / 2000.0
 )
 systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
@@ -100,7 +100,7 @@ def fix_basal_endo_ring(W):
     )
     return bc
 
-print(dir(fix_basal_endo_ring))
+# print(dir(fix_basal_endo_ring))
 for edge in dolfin.edges(geometry.mesh):
     radius=0
     if geometry.efun[edge]==geometry.markers['ENDORING'][0]:
@@ -142,11 +142,15 @@ p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
 # %% Initialization to the atrium pressure of 0.2 kPa
-pulse.iterate.iterate(problem, lvp, 0.2, initial_number_of_steps=15)
+pulse.iterate.iterate(problem, lvp, 0.02, initial_number_of_steps=15)
 v_current=geometry.cavity_volume(u=problem.state.sub(0))
 p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
+reults_u, p = problem.state.split(deepcopy=True)
+reults_u.t=0
+with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+    xdmf.write_checkpoint(reults_u, "u", float(0), dolfin.XDMFFile.Encoding.HDF5, True)
 # %%
 tau=t_eval_systole[1]
 p_ao=1
@@ -291,10 +295,10 @@ for t in range(len(normal_activation_systole)):
     # print(f"The volumes are : {vols}")
     print('================================')
     reults_u, p = problem.state.split(deepcopy=True)
-    reults_u.t=t
+    reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(reults_u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
-    if t>10:
+    if t>15:
         break
     
 # %%
