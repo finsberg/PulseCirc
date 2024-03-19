@@ -101,15 +101,58 @@ def fix_basal_endo_ring(W):
     return bc
 
 # print(dir(fix_basal_endo_ring))
+edgs=[]
 for edge in dolfin.edges(geometry.mesh):
-    radius=0
-    if geometry.efun[edge]==geometry.markers['ENDORING'][0]:
+    # breakpoint()
+    if geometry.efun[edge]==geometry.markers['BASAL-ANTERIOR'][0]:
+        # print(geometry.efun[edge])
         for vertex in dolfin.vertices(edge):
-            r=np.sqrt(vertex.point().array()[1]**2+vertex.point().array()[2]**2)
-            radius+=r
-            print(vertex.point().array()[0])
-            
+            edgs.append(vertex.point().array())
+            # r=np.sqrt(vertex.point().array()[1]**2+vertex.point().array()[2]**2)
+            # print([vertex.point().array()[0],vertex.point().array()[1],vertex.point().array()[2]])
+edgs=np.array(edgs)            
+plt.scatter(edgs[:,1],edgs[:,2])           
+# print(dir(fix_basal_endo_ring))
+pnts=[]
+radii=[]
+for fc in dolfin.facets(geometry.mesh):
+    # breakpoint()
+    if geometry.ffun[fc]==geometry.markers['BASE'][0]:
+        # print(geometry.ffun[fc])
+        for vertex in dolfin.vertices(fc):
+            pnts.append(vertex.point().array())
+            # r=np.sqrt(vertex.point().array()[1]**2+vertex.point().array()[2]**2)
+            # print([vertex.point().array()[0],vertex.point().array()[1],vertex.point().array()[2]])
+pnts=np.array(pnts)            
+plt.scatter(pnts[:,1],pnts[:,2])
+plt.axis('equal')
+rad_vals=np.min((pnts[:,1]**2+pnts[:,2]**2))
+
+# class EndoRing(dolfin.SubDomain):
+#     def inside(self, x, on_boundary):
+#         return dolfin.near(x[0], 5, dolfin.DOLFIN_EPS) and dolfin.near(x[1]**2+x[2]**2, 44.76124567474048, dolfin.DOLFIN_EPS)
+
+
+
+class EndoRing(dolfin.SubDomain):
+    def inside(self, x, on_boundary):
+        return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+
+
+W=problem.state_space.sub(0)
+V = dolfin.VectorFunctionSpace(geometry.mesh, "Lagrange", 1)
+
+bc21 = dolfin.DirichletBC(W.sub(1), dolfin.Constant(0.0), EndoRing(), method="pointwise")
+
+u_ = dolfin.FunctionSpace(W)
+u_.vector()[:] = 10
+bc21.apply(u_.vector())
+dolfin.File("u.pvd") <<u_
+
+
+
 dirichlet_bc = (fix_basal_plane,)
+
 
 # LV Pressure
 lvp = dolfin.Constant(0.0, name='LV Pressure')
