@@ -226,74 +226,74 @@ for t in range(len(normal_activation_systole)):
     print("Applying Contraction...")
     target_activation=normal_activation_systole[t]
     pulse.iterate.iterate(problem, activation, target_activation)
-    # print('================================')
-    # print("Finding the corresponding LV pressure...")
-    # #### Circulation
-    # circ_iter=0
-    # # initial guess for new pressure
-    # if t==0:
-    #     p_current=p_current*1.01
-    # else:
-    #     p_current=pres[-1]+(pres[-1]-pres[-2])
-    # #
-    # #  Backup the problem
-    # state_backup = problem.state.copy(deepcopy=True)
-    # lvp_value_backup=get_lvp_from_problem(problem).values()[0]
-    # #
-    # #
+    print('================================')
+    print("Finding the corresponding LV pressure...")
+    #### Circulation
+    circ_iter=0
+    # initial guess for new pressure
+    if t==0:
+        p_current=p_current*1.01
+    else:
+        p_current=pres[-1]+(pres[-1]-pres[-2])
+    #
+    #  Backup the problem
+    state_backup = problem.state.copy(deepcopy=True)
+    lvp_value_backup=get_lvp_from_problem(problem).values()[0]
+    #
+    #
+    problem.solve()
+    p_old=pres[-1]
+    v_old=vols[-1]
+    R=[]
+    tol=0.0001*v_old
+    while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
+        pi=0
+        p_steps=2
+        k=0
+        flag_solved=False
+        while k<10 and not flag_solved:
+            p_list=np.linspace(float(lvp), p_current, p_steps)[1:]
+            for pi in p_list:
+                print(pi)
+                try:
+                    lvp.assign(pi)
+                    problem.solve()
+                    flag_solved=True
+                except pulse.mechanicsproblem.SolverDidNotConverge:
+                    problem.state.assign(state_backup)
+                    lvp.assign(lvp_value_backup)
+                    problem.solve()
+                    p_steps+=1
+                    k+=1
+                    flag_solved=False
+                    print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
+                    break;
+        v_current=get_lvv_from_problem(problem)
+        Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
+        v_fe=v_current
+        v_circ=v_old-Q
+        R.append(v_fe-v_circ)
+        if np.abs(R[-1])>tol:
+            dVFE_dP=dV_FE(problem)
+            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
+            J=dVFE_dP+dQCirc_dP
+            p_current=p_current-R[-1]/J
+            circ_iter+=1
+    # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
+    # problem.state.assign(problem_circ.state)
+    p_current=get_lvp_from_problem(problem).values()[0]
+    # lvp.assign(p_current)
     # problem.solve()
-    # p_old=pres[-1]
-    # v_old=vols[-1]
-    # R=[]
-    # tol=0.0001*v_old
-    # while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
-    #     pi=0
-    #     p_steps=2
-    #     k=0
-    #     flag_solved=False
-    #     while k<10 and not flag_solved:
-    #         p_list=np.linspace(float(lvp), p_current, p_steps)[1:]
-    #         for pi in p_list:
-    #             print(pi)
-    #             try:
-    #                 lvp.assign(pi)
-    #                 problem.solve()
-    #                 flag_solved=True
-    #             except pulse.mechanicsproblem.SolverDidNotConverge:
-    #                 problem.state.assign(state_backup)
-    #                 lvp.assign(lvp_value_backup)
-    #                 problem.solve()
-    #                 p_steps+=1
-    #                 k+=1
-    #                 flag_solved=False
-    #                 print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
-    #                 break;
-    #     v_current=get_lvv_from_problem(problem)
-    #     Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
-    #     v_fe=v_current
-    #     v_circ=v_old-Q
-    #     R.append(v_fe-v_circ)
-    #     if np.abs(R[-1])>tol:
-    #         dVFE_dP=dV_FE(problem)
-    #         dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
-    #         J=dVFE_dP+dQCirc_dP
-    #         p_current=p_current-R[-1]/J
-    #         circ_iter+=1
-    # # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
-    # # problem.state.assign(problem_circ.state)
-    # p_current=get_lvp_from_problem(problem).values()[0]
-    # # lvp.assign(p_current)
-    # # problem.solve()
-    # # pulse.iterate.iterate(problem, lvp, p_current)
-    # v_current=get_lvv_from_problem(problem)
-    # vols.append(v_current)
-    # pres.append(p_current)
-    # # print('================================')
-    # # print(f"Time Step: {t}, is converged with Circulation Residuals of : {R}")
-    # print(f"Time Step: {t} is converged")
-    # # print(f"The pressures are : {pres}")
-    # # print(f"The volumes are : {vols}")
+    # pulse.iterate.iterate(problem, lvp, p_current)
+    v_current=get_lvv_from_problem(problem)
+    vols.append(v_current)
+    pres.append(p_current)
     # print('================================')
+    # print(f"Time Step: {t}, is converged with Circulation Residuals of : {R}")
+    print(f"Time Step: {t} is converged")
+    # print(f"The pressures are : {pres}")
+    # print(f"The volumes are : {vols}")
+    print('================================')
     reults_u, p = problem.state.split(deepcopy=True)
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
