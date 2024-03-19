@@ -298,7 +298,7 @@ for t in range(len(normal_activation_systole)):
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(reults_u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
-    if t>15:
+    if t>40:
         break
     
 # %%
