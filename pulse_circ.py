@@ -59,8 +59,8 @@ systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
 t_eval_systole=t_eval[systole_ind:]
 # make a simple activation for testing
-normal_activation_systole=np.linspace(0,50,200)[1:]
-t_eval_systole=np.linspace(0,0.5,200)[1:]
+#normal_activation_systole=np.linspace(0,50,200)[1:]
+#t_eval_systole=np.linspace(0,0.5,200)[1:]
 # %% Defining activation as dolfin.constant
 
 activation = dolfin.Constant(0.0, name='gamma')
@@ -152,7 +152,7 @@ reults_u.t=0
 with dolfin.XDMFFile(outname.as_posix()) as xdmf:
     xdmf.write_checkpoint(reults_u, "u", float(0), dolfin.XDMFFile.Encoding.HDF5, True)
 # %%
-tau=t_eval_systole[1]
+tau=t_eval_systole[1]-t_eval_systole[0]
 p_ao=1
 
 #%%
@@ -245,7 +245,7 @@ for t in range(len(normal_activation_systole)):
     p_old=pres[-1]
     v_old=vols[-1]
     R=[]
-    tol=0.0001*v_old
+    tol=0.00001*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
         pi=0
         p_steps=2
@@ -297,8 +297,8 @@ for t in range(len(normal_activation_systole)):
     reults_u, p = problem.state.split(deepcopy=True)
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
-        xdmf.write_checkpoint(reults_u, "u", float(t), dolfin.XDMFFile.Encoding.HDF5, True)
-    if t>40:
+        xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
+    if t>27:
         break
     
 # %%
