@@ -76,7 +76,7 @@ material = pulse.HolzapfelOgden(
     n0=geometry.n0,
 )
 #%% Boundary Conditions
-# Add spring term at the epicardium of stiffness 1.0 kPa/cm^2 to represent pericardium
+# ------------------- Fix BASE in longitudinal -------------------------
 # Fix the basal plane in the longitudinal direction
 # 0 in V.sub(0) refers to x-direction, which is the longitudinal direction
 def fix_basal_plane(W):
@@ -88,72 +88,110 @@ def fix_basal_plane(W):
         geometry.markers["BASE"][0],
     )
     return bc
-
-def fix_basal_endo_ring(W):
-    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-    bc = dolfin.DirichletBC(
-        V,
-        dolfin.Constant((0.0,0.0,0.0)),
-        geometry.efun,
-        geometry.markers["ENDORING"][0],
-        method = "pointwise",
-    )
-    return bc
-
-# print(dir(fix_basal_endo_ring))
-edgs=[]
-for edge in dolfin.edges(geometry.mesh):
-    # breakpoint()
-    if geometry.efun[edge]==geometry.markers['BASAL-ANTERIOR'][0]:
-        # print(geometry.efun[edge])
-        for vertex in dolfin.vertices(edge):
-            edgs.append(vertex.point().array())
-            # r=np.sqrt(vertex.point().array()[1]**2+vertex.point().array()[2]**2)
-            # print([vertex.point().array()[0],vertex.point().array()[1],vertex.point().array()[2]])
-edgs=np.array(edgs)            
-plt.scatter(edgs[:,1],edgs[:,2])           
-# print(dir(fix_basal_endo_ring))
+# ------------------- Fix BASE ENDO RING in all diredction -------------------------
+# Finidng the endo ring radius
 pnts=[]
 radii=[]
 for fc in dolfin.facets(geometry.mesh):
-    # breakpoint()
     if geometry.ffun[fc]==geometry.markers['BASE'][0]:
-        # print(geometry.ffun[fc])
         for vertex in dolfin.vertices(fc):
             pnts.append(vertex.point().array())
-            # r=np.sqrt(vertex.point().array()[1]**2+vertex.point().array()[2]**2)
-            # print([vertex.point().array()[0],vertex.point().array()[1],vertex.point().array()[2]])
 pnts=np.array(pnts)            
-plt.scatter(pnts[:,1],pnts[:,2])
-plt.axis('equal')
-rad_vals=np.min((pnts[:,1]**2+pnts[:,2]**2))
+EndoRing_radius=np.min((pnts[:,1]**2+pnts[:,2]**2))
+print(f'Endoring radius is {EndoRing_radius}')
+# EndoRing_subDomain = dolfin.CompiledSubDomain('near(x[0], 1, 0.001) && near(pow(x[1],2)+pow(x[2],2), radius, 0.001)', radius=EndoRing_radius)
+def fix_endoring_x(W):
+    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
+    class EndoRing_subDomain(dolfin.SubDomain):
+        def inside(self, x, on_boundary):
+            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+    bc = dolfin.DirichletBC(
+        V.sub(0),
+        dolfin.Constant(0.0),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    return bc
 
-# class EndoRing(dolfin.SubDomain):
-#     def inside(self, x, on_boundary):
-#         return dolfin.near(x[0], 5, dolfin.DOLFIN_EPS) and dolfin.near(x[1]**2+x[2]**2, 44.76124567474048, dolfin.DOLFIN_EPS)
+def fix_endoring_y(W):
+    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
+    class EndoRing_subDomain(dolfin.SubDomain):
+        def inside(self, x, on_boundary):
+            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+    bc = dolfin.DirichletBC(
+        V.sub(1),
+        dolfin.Constant(0.0),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    return bc
+
+def fix_endoring_z(W):
+    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
+    class EndoRing_subDomain(dolfin.SubDomain):
+        def inside(self, x, on_boundary):
+            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+    bc = dolfin.DirichletBC(
+        V.sub(2),
+        dolfin.Constant(0.0),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    return bc
+# # To test the BC 
+# V = dolfin.VectorFunctionSpace(geometry.mesh, "Lagrange", 1)
+# bc21 = dolfin.DirichletBC(V.sub(1), dolfin.Constant(0.0), EndoRing(), method="pointwise")
+# u_ = dolfin.Function(V)
+# u_.vector()[:] = 10
+# bc21.apply(u_.vector())
+# dolfin.File("u.pvd") <<u_
 
 
 
-class EndoRing(dolfin.SubDomain):
-    def inside(self, x, on_boundary):
-        return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+# dirichlet_bc = (fix_endoring_x,fix_endoring_y,fix_endoring_z,)
+# dirichlet_bc = (fix_endoring_y,fix_endoring_z,fix_basal_plane,)
+# dirichlet_bc = (fix_basal_plane,)
+
+def AllBCs(W):
+    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
+    bc_fixed_based = dolfin.DirichletBC(
+        V.sub(0),
+        dolfin.Constant(0.0),
+        geometry.ffun,
+        geometry.markers["BASE"][0],
+    )
+    class EndoRing_subDomain(dolfin.SubDomain):
+        def inside(self, x, on_boundary):
+            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+    bc_fixed_x = dolfin.DirichletBC(
+        V.sub(0),
+        dolfin.Constant(0.0),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    bc_fixed_y = dolfin.DirichletBC(
+        V.sub(1),
+        dolfin.Constant(0.0),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    bc_fixed_z = dolfin.DirichletBC(
+        V.sub(2),
+        dolfin.Constant(0.0),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    endo_ring_fixed=dolfin.DirichletBC(
+        V,
+        dolfin.Constant((0.0,0.0,0.0)),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    return endo_ring_fixed
+dirichlet_bc = (AllBCs,)
 
 
-W=problem.state_space.sub(0)
-V = dolfin.VectorFunctionSpace(geometry.mesh, "Lagrange", 1)
-
-bc21 = dolfin.DirichletBC(W.sub(1), dolfin.Constant(0.0), EndoRing(), method="pointwise")
-
-u_ = dolfin.FunctionSpace(W)
-u_.vector()[:] = 10
-bc21.apply(u_.vector())
-dolfin.File("u.pvd") <<u_
-
-
-
-dirichlet_bc = (fix_basal_plane,)
-
-
+# ------------------- LV pressure on ENDO surface -------------------------
 # LV Pressure
 lvp = dolfin.Constant(0.0, name='LV Pressure')
 lv_marker = geometry.markers["ENDO"][0]
@@ -269,74 +307,74 @@ for t in range(len(normal_activation_systole)):
     print("Applying Contraction...")
     target_activation=normal_activation_systole[t]
     pulse.iterate.iterate(problem, activation, target_activation)
-    print('================================')
-    print("Finding the corresponding LV pressure...")
-    #### Circulation
-    circ_iter=0
-    # initial guess for new pressure
-    if t==0:
-        p_current=p_current*1.01
-    else:
-        p_current=pres[-1]+(pres[-1]-pres[-2])
-    #
-    #  Backup the problem
-    state_backup = problem.state.copy(deepcopy=True)
-    lvp_value_backup=get_lvp_from_problem(problem).values()[0]
-    #
-    #
-    problem.solve()
-    p_old=pres[-1]
-    v_old=vols[-1]
-    R=[]
-    tol=0.0001*v_old
-    while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
-        pi=0
-        p_steps=2
-        k=0
-        flag_solved=False
-        while k<10 and not flag_solved:
-            p_list=np.linspace(float(lvp), p_current, p_steps)[1:]
-            for pi in p_list:
-                print(pi)
-                try:
-                    lvp.assign(pi)
-                    problem.solve()
-                    flag_solved=True
-                except pulse.mechanicsproblem.SolverDidNotConverge:
-                    problem.state.assign(state_backup)
-                    lvp.assign(lvp_value_backup)
-                    problem.solve()
-                    p_steps+=1
-                    k+=1
-                    flag_solved=False
-                    print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
-                    break;
-        v_current=get_lvv_from_problem(problem)
-        Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
-        v_fe=v_current
-        v_circ=v_old-Q
-        R.append(v_fe-v_circ)
-        if np.abs(R[-1])>tol:
-            dVFE_dP=dV_FE(problem)
-            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
-            J=dVFE_dP+dQCirc_dP
-            p_current=p_current-R[-1]/J
-            circ_iter+=1
-    # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
-    # problem.state.assign(problem_circ.state)
-    p_current=get_lvp_from_problem(problem).values()[0]
-    # lvp.assign(p_current)
-    # problem.solve()
-    # pulse.iterate.iterate(problem, lvp, p_current)
-    v_current=get_lvv_from_problem(problem)
-    vols.append(v_current)
-    pres.append(p_current)
     # print('================================')
-    # print(f"Time Step: {t}, is converged with Circulation Residuals of : {R}")
-    print(f"Time Step: {t} is converged")
-    # print(f"The pressures are : {pres}")
-    # print(f"The volumes are : {vols}")
-    print('================================')
+    # print("Finding the corresponding LV pressure...")
+    # #### Circulation
+    # circ_iter=0
+    # # initial guess for new pressure
+    # if t==0:
+    #     p_current=p_current*1.01
+    # else:
+    #     p_current=pres[-1]+(pres[-1]-pres[-2])
+    # #
+    # #  Backup the problem
+    # state_backup = problem.state.copy(deepcopy=True)
+    # lvp_value_backup=get_lvp_from_problem(problem).values()[0]
+    # #
+    # #
+    # problem.solve()
+    # p_old=pres[-1]
+    # v_old=vols[-1]
+    # R=[]
+    # tol=0.0001*v_old
+    # while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
+    #     pi=0
+    #     p_steps=2
+    #     k=0
+    #     flag_solved=False
+    #     while k<10 and not flag_solved:
+    #         p_list=np.linspace(float(lvp), p_current, p_steps)[1:]
+    #         for pi in p_list:
+    #             print(pi)
+    #             try:
+    #                 lvp.assign(pi)
+    #                 problem.solve()
+    #                 flag_solved=True
+    #             except pulse.mechanicsproblem.SolverDidNotConverge:
+    #                 problem.state.assign(state_backup)
+    #                 lvp.assign(lvp_value_backup)
+    #                 problem.solve()
+    #                 p_steps+=1
+    #                 k+=1
+    #                 flag_solved=False
+    #                 print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
+    #                 break;
+    #     v_current=get_lvv_from_problem(problem)
+    #     Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
+    #     v_fe=v_current
+    #     v_circ=v_old-Q
+    #     R.append(v_fe-v_circ)
+    #     if np.abs(R[-1])>tol:
+    #         dVFE_dP=dV_FE(problem)
+    #         dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
+    #         J=dVFE_dP+dQCirc_dP
+    #         p_current=p_current-R[-1]/J
+    #         circ_iter+=1
+    # # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
+    # # problem.state.assign(problem_circ.state)
+    # p_current=get_lvp_from_problem(problem).values()[0]
+    # # lvp.assign(p_current)
+    # # problem.solve()
+    # # pulse.iterate.iterate(problem, lvp, p_current)
+    # v_current=get_lvv_from_problem(problem)
+    # vols.append(v_current)
+    # pres.append(p_current)
+    # # print('================================')
+    # # print(f"Time Step: {t}, is converged with Circulation Residuals of : {R}")
+    # print(f"Time Step: {t} is converged")
+    # # print(f"The pressures are : {pres}")
+    # # print(f"The volumes are : {vols}")
+    # print('================================')
     reults_u, p = problem.state.split(deepcopy=True)
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
