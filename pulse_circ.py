@@ -33,7 +33,7 @@ def get_ellipsoid_geometry(folder=Path("lv")):
         )
 
     geo = cardiac_geometries.geometry.Geometry.from_folder(folder)
-    marker_functions = pulse.MarkerFunctions(cfun=geo.cfun, ffun=geo.ffun)
+    marker_functions = pulse.MarkerFunctions(cfun=geo.cfun, ffun=geo.ffun, efun=geo.efun)
     microstructure = pulse.Microstructure(f0=geo.f0, s0=geo.s0, n0=geo.n0)
     return pulse.HeartGeometry(
         mesh=geo.mesh,
@@ -53,14 +53,14 @@ normal_activation = (
         t_eval=t_eval,
         parameters=normal_activation_params,
     )
-    / 1000.0
+    / 2000.0
 )
 systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
 t_eval_systole=t_eval[systole_ind:]
 # make a simple activation for testing
-normal_activation_systole=np.linspace(0,50,200)[1:]
-t_eval_systole=np.linspace(0,0.5,200)[1:]
+#normal_activation_systole=np.linspace(0,50,200)[1:]
+#t_eval_systole=np.linspace(0,0.5,200)[1:]
 # %% Defining activation as dolfin.constant
 
 activation = dolfin.Constant(0.0, name='gamma')
@@ -76,21 +76,41 @@ material = pulse.HolzapfelOgden(
     n0=geometry.n0,
 )
 #%% Boundary Conditions
-# Add spring term at the epicardium of stiffness 1.0 kPa/cm^2 to represent pericardium
-# Fix the basal plane in the longitudinal direction
-# 0 in V.sub(0) refers to x-direction, which is the longitudinal direction
-def fix_basal_plane(W):
+# ------------------- Fix base and/or endoring  -------------------------
+# Finidng the endo ring radius
+pnts=[]
+radii=[]
+for fc in dolfin.facets(geometry.mesh):
+    if geometry.ffun[fc]==geometry.markers['BASE'][0]:
+        for vertex in dolfin.vertices(fc):
+            pnts.append(vertex.point().array())
+pnts=np.array(pnts)            
+EndoRing_radius=np.min((pnts[:,1]**2+pnts[:,2]**2))
+print(f'Endoring radius is {EndoRing_radius}')
+# EndoRing_subDomain = dolfin.CompiledSubDomain('near(x[0], 1, 0.001) && near(pow(x[1],2)+pow(x[2],2), radius, 0.001)', radius=EndoRing_radius)
+
+def AllBCs(W):
     V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-    bc = dolfin.DirichletBC(
+    bc_fixed_based = dolfin.DirichletBC(
         V.sub(0),
         dolfin.Constant(0.0),
         geometry.ffun,
         geometry.markers["BASE"][0],
     )
-    return bc
+    class EndoRing_subDomain(dolfin.SubDomain):
+        def inside(self, x, on_boundary):
+            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+    endo_ring_fixed=dolfin.DirichletBC(
+        V,
+        dolfin.Constant((0.0,0.0,0.0)),
+        EndoRing_subDomain(),
+        method="pointwise",
+    )
+    return endo_ring_fixed
+dirichlet_bc = (AllBCs,)
 
-dirichlet_bc = (fix_basal_plane,)
 
+# ------------------- LV pressure on ENDO surface -------------------------
 # LV Pressure
 lvp = dolfin.Constant(0.0, name='LV Pressure')
 lv_marker = geometry.markers["ENDO"][0]
@@ -122,13 +142,17 @@ p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
 # %% Initialization to the atrium pressure of 0.2 kPa
-pulse.iterate.iterate(problem, lvp, 0.2, initial_number_of_steps=15)
+pulse.iterate.iterate(problem, lvp, 0.02, initial_number_of_steps=15)
 v_current=geometry.cavity_volume(u=problem.state.sub(0))
 p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
+reults_u, p = problem.state.split(deepcopy=True)
+reults_u.t=0
+with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+    xdmf.write_checkpoint(reults_u, "u", float(0), dolfin.XDMFFile.Encoding.HDF5, True)
 # %%
-tau=t_eval_systole[1]
+tau=t_eval_systole[1]-t_eval_systole[0]
 p_ao=1
 
 #%%
@@ -146,32 +170,40 @@ def dV_FE(problem):
     :pulse.MechanicsProblem problem:    The mechanics problem containg the infromation on FE model.
     
     """
+    #
+    #  Backup the problem
+    state_backup_dv = problem.state.copy(deepcopy=True)
+    lvp_value_backup_dv=get_lvp_from_problem(problem).values()[0]
+    #
+    #
     lvp=get_lvp_from_problem(problem)
     p_old=lvp.values()[0]
     v_old=get_lvv_from_problem(problem)
-    dummy_problem=copy_problem(problem,lvp_name='dummy LV Pressure')
-    dummy_problem.solve()
-    dummy_lvp=get_lvp_from_problem(dummy_problem)
-    dp=0.0001
+    dp0=0.001*p_old
+    dp=dp0
     k=0
     flag_solved=False
-    while (not flag_solved) and k<10:
+    while (not flag_solved) and k<20:
         try:
             p_new=p_old+dp
-            dummy_lvp.assign(p_new)
-            dummy_problem.solve()
+            lvp.assign(p_new)
+            problem.solve()
             flag_solved=True
         except pulse.mechanicsproblem.SolverDidNotConverge:
-            dummy_problem=copy_problem(problem,lvp_name='dummy LV Pressure')
-            dummy_problem.solve()
-            dummy_lvp=get_lvp_from_problem(dummy_problem)
-            dp=dp*2
+            problem.state.assign(state_backup_dv)
+            lvp.assign(lvp_value_backup_dv)
+            # problem.solve()
+            dp+=dp0
             print(f"Derivation not Converged, increasin the dp to : {dp}")
             k+=1
         
     # pulse.iterate.iterate(dummy_problem, dummy_lvp, p_new, initial_number_of_steps=5)
-    v_new=get_lvv_from_problem(dummy_problem)
+    v_new=get_lvv_from_problem(problem)
     dVdp=(v_new-v_old)/(p_new-p_old)
+    problem.state.assign(state_backup_dv)
+    lvp.assign(lvp_value_backup_dv)
+    # FIXME: I think we need to solve the problem here too
+    # problem.solve()
     return dVdp
     
 def dV_WK2(fun,tau,p_old,p_current,R,C):
@@ -179,41 +211,7 @@ def dV_WK2(fun,tau,p_old,p_current,R,C):
     eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C)
     return (eval2-eval1)/(p_current*.01)
 
-def copy_problem(problem,lvp_name=None):
-        # FIXME Add it to the class
-        # FIXME This is hardcoded with BC. The issue is that when you copy the geo then the BC should be now specified
-        # Copying the problem as new simple Mechanics problem, and defining a new Coefficient for Neumann BC. Note that the Coefficient in the new problem is a different dolfin.coefficient as we do not want to change the original Pendo
-        new_mat=problem.material.copy()
-        #new_geo=problem.geometry.copy()
-        new_geo=problem.geometry
-        # --------- Neumann BC ----------------
-        lvp=problem.bcs.neumann[0].traction
-        lvp_value=lvp.values()[0]
-        if lvp_name==None:
-            lvp_name=lvp.name()+'_new'
-        lvp_new=dolfin.Constant(lvp_value,name=lvp_name)
-        lv_pressure = pulse.NeumannBC(traction=lvp_new, marker=problem.geometry.markers["ENDO"][0], name="lv")
-        new_bcs_neumann = [lv_pressure]
-        # --------- Dirichlet BC ----------------
-        def fix_basal_plane(W):
-            V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-            bc = dolfin.DirichletBC(
-                V.sub(0),
-                dolfin.Constant(0.0),
-                geometry.ffun,
-                geometry.markers["BASE"][0],
-            )
-            return bc
-        new_bcs_dirichlet = (fix_basal_plane,)
-        new_bcs = pulse.BoundaryConditions(
-            dirichlet=new_bcs_dirichlet,
-            neumann=new_bcs_neumann,
-        )
-        # --------- New Problem ----------------
-        new_problem = pulse.MechanicsProblem(new_geo, new_mat, new_bcs)
-        dolfin.assign(new_problem.state.sub(0), problem.state.sub(0))
-        dolfin.assign(new_problem.state.sub(1), problem.state.sub(1))
-        return new_problem
+
 
 def get_lvp_from_problem(problem):
     # getting the LV pressure which is assinged as Neumann BC from a Pulse.MechanicsProblem
@@ -231,60 +229,62 @@ for t in range(len(normal_activation_systole)):
     print('================================')
     print("Finding the corresponding LV pressure...")
     #### Circulation
-    R=[]
     circ_iter=0
     # initial guess for new pressure
     if t==0:
         p_current=p_current*1.01
     else:
         p_current=pres[-1]+(pres[-1]-pres[-2])
-    problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
-    lvp_circ=get_lvp_from_problem(problem_circ)
-    problem_circ.solve()
+    #
+    #  Backup the problem
+    state_backup = problem.state.copy(deepcopy=True)
+    lvp_value_backup=get_lvp_from_problem(problem).values()[0]
+    #
+    #
+    problem.solve()
     p_old=pres[-1]
     v_old=vols[-1]
-    tol=0.0001*v_old
+    R=[]
+    tol=0.00001*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
-        # old_state = problem_circ.state.copy(deepcopy=True)
-        # lvp_circ.assign(p_current)
         pi=0
         p_steps=2
         k=0
         flag_solved=False
         while k<10 and not flag_solved:
-            p_list=np.linspace(float(lvp_circ), p_current, p_steps)[1:]
+            p_list=np.linspace(float(lvp), p_current, p_steps)[1:]
             for pi in p_list:
                 print(pi)
                 try:
-                    lvp_circ.assign(pi)
-                    problem_circ.solve()
-                    lvp_circ=get_lvp_from_problem(problem_circ)
+                    lvp.assign(pi)
+                    problem.solve()
                     flag_solved=True
-                    # pulse.iterate.iterate(problem_circ, lvp_circ, pi)
                 except pulse.mechanicsproblem.SolverDidNotConverge:
-                    problem_circ=copy_problem(problem,lvp_name='LV Pressure Circulation')
-                    lvp_circ=get_lvp_from_problem(problem_circ)
+                    problem.state.assign(state_backup)
+                    lvp.assign(lvp_value_backup)
+                    problem.solve()
                     p_steps+=1
                     k+=1
                     flag_solved=False
-                    print(f"Problem not Converged, increasin the steps to : {p_steps}")
+                    print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
                     break;
-        v_current=get_lvv_from_problem(problem_circ)
+        v_current=get_lvv_from_problem(problem)
         Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
         v_fe=v_current
         v_circ=v_old-Q
         R.append(v_fe-v_circ)
-        dVFE_dP=dV_FE(problem_circ)
-        dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
-        J=dVFE_dP+dQCirc_dP
-        p_current=p_current-R[-1]/J
-        circ_iter+=1
+        if np.abs(R[-1])>tol:
+            dVFE_dP=dV_FE(problem)
+            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
+            J=dVFE_dP+dQCirc_dP
+            p_current=p_current-R[-1]/J
+            circ_iter+=1
     # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
-    problem.state.assign(problem_circ.state)
-    p_current=get_lvp_from_problem(problem_circ).values()[0]
-    lvp.assign(p_current)
-    problem.solve()
-    #pulse.iterate.iterate(problem, lvp, p_current)
+    # problem.state.assign(problem_circ.state)
+    p_current=get_lvp_from_problem(problem).values()[0]
+    # lvp.assign(p_current)
+    # problem.solve()
+    # pulse.iterate.iterate(problem, lvp, p_current)
     v_current=get_lvv_from_problem(problem)
     vols.append(v_current)
     pres.append(p_current)
@@ -294,7 +294,11 @@ for t in range(len(normal_activation_systole)):
     # print(f"The pressures are : {pres}")
     # print(f"The volumes are : {vols}")
     print('================================')
-    if t>10:
+    reults_u, p = problem.state.split(deepcopy=True)
+    reults_u.t=t+1
+    with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+        xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
+    if t>27:
         break
     
 # %%

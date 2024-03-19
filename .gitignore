@@ -1,5 +1,7 @@
 lv
 results
+results_pulse_circ
+.DS_Store
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
@@ -8,7 +10,8 @@ results
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.pvd
+*.vtu
 # C extensions
 *.so
 
