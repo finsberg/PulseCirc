@@ -76,19 +76,7 @@ material = pulse.HolzapfelOgden(
     n0=geometry.n0,
 )
 #%% Boundary Conditions
-# ------------------- Fix BASE in longitudinal -------------------------
-# Fix the basal plane in the longitudinal direction
-# 0 in V.sub(0) refers to x-direction, which is the longitudinal direction
-def fix_basal_plane(W):
-    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-    bc = dolfin.DirichletBC(
-        V.sub(0),
-        dolfin.Constant(0.0),
-        geometry.ffun,
-        geometry.markers["BASE"][0],
-    )
-    return bc
-# ------------------- Fix BASE ENDO RING in all diredction -------------------------
+# ------------------- Fix base and/or endoring  -------------------------
 # Finidng the endo ring radius
 pnts=[]
 radii=[]
@@ -100,57 +88,6 @@ pnts=np.array(pnts)
 EndoRing_radius=np.min((pnts[:,1]**2+pnts[:,2]**2))
 print(f'Endoring radius is {EndoRing_radius}')
 # EndoRing_subDomain = dolfin.CompiledSubDomain('near(x[0], 1, 0.001) && near(pow(x[1],2)+pow(x[2],2), radius, 0.001)', radius=EndoRing_radius)
-def fix_endoring_x(W):
-    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-    class EndoRing_subDomain(dolfin.SubDomain):
-        def inside(self, x, on_boundary):
-            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
-    bc = dolfin.DirichletBC(
-        V.sub(0),
-        dolfin.Constant(0.0),
-        EndoRing_subDomain(),
-        method="pointwise",
-    )
-    return bc
-
-def fix_endoring_y(W):
-    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-    class EndoRing_subDomain(dolfin.SubDomain):
-        def inside(self, x, on_boundary):
-            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
-    bc = dolfin.DirichletBC(
-        V.sub(1),
-        dolfin.Constant(0.0),
-        EndoRing_subDomain(),
-        method="pointwise",
-    )
-    return bc
-
-def fix_endoring_z(W):
-    V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
-    class EndoRing_subDomain(dolfin.SubDomain):
-        def inside(self, x, on_boundary):
-            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
-    bc = dolfin.DirichletBC(
-        V.sub(2),
-        dolfin.Constant(0.0),
-        EndoRing_subDomain(),
-        method="pointwise",
-    )
-    return bc
-# # To test the BC 
-# V = dolfin.VectorFunctionSpace(geometry.mesh, "Lagrange", 1)
-# bc21 = dolfin.DirichletBC(V.sub(1), dolfin.Constant(0.0), EndoRing(), method="pointwise")
-# u_ = dolfin.Function(V)
-# u_.vector()[:] = 10
-# bc21.apply(u_.vector())
-# dolfin.File("u.pvd") <<u_
-
-
-
-# dirichlet_bc = (fix_endoring_x,fix_endoring_y,fix_endoring_z,)
-# dirichlet_bc = (fix_endoring_y,fix_endoring_z,fix_basal_plane,)
-# dirichlet_bc = (fix_basal_plane,)
 
 def AllBCs(W):
     V = W if W.sub(0).num_sub_spaces() == 0 else W.sub(0)
@@ -163,24 +100,6 @@ def AllBCs(W):
     class EndoRing_subDomain(dolfin.SubDomain):
         def inside(self, x, on_boundary):
             return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
-    bc_fixed_x = dolfin.DirichletBC(
-        V.sub(0),
-        dolfin.Constant(0.0),
-        EndoRing_subDomain(),
-        method="pointwise",
-    )
-    bc_fixed_y = dolfin.DirichletBC(
-        V.sub(1),
-        dolfin.Constant(0.0),
-        EndoRing_subDomain(),
-        method="pointwise",
-    )
-    bc_fixed_z = dolfin.DirichletBC(
-        V.sub(2),
-        dolfin.Constant(0.0),
-        EndoRing_subDomain(),
-        method="pointwise",
-    )
     endo_ring_fixed=dolfin.DirichletBC(
         V,
         dolfin.Constant((0.0,0.0,0.0)),
