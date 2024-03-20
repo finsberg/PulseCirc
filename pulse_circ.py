@@ -18,32 +18,48 @@ logger = getLogger(__name__)
 
 #%%Parameters
 
-t_res=1000
+t_res=200
 t_span = (0.0, 1.0)
 # Aortic Pressure: the pressure from which the ejection start
-P_ao=5
+p_ao=12
 
 #%%
 def get_ellipsoid_geometry(folder=Path("lv")):
-    if not folder.is_dir():
-        # Create geometry
-        cardiac_geometries.create_lv_ellipsoid(
-            folder,
-            create_fibers=True,
-        )
-
-    geo = cardiac_geometries.geometry.Geometry.from_folder(folder)
+    # Assuming 50 mm for LVEDd (ED diameter), and 7.5mm for wall thickness. For the 
+    r_short_endo = 30
+    r_short_epi = 37.5
+    r_long_endo = 55
+    r_long_epi = 60
+    geo = cardiac_geometries.mesh.create_lv_ellipsoid(
+        outdir= folder,
+        r_short_endo = r_short_endo,
+        r_short_epi = r_short_epi,
+        r_long_endo = r_long_endo,
+        r_long_epi = r_long_epi,
+        psize_ref = 10,
+        mu_apex_endo = -np.pi,
+        mu_base_endo = -np.arccos(r_short_epi / r_long_endo/2),
+        mu_apex_epi = -np.pi,
+        mu_base_epi = -np.arccos(r_short_epi / r_long_epi/2),
+        create_fibers = True,
+        fiber_angle_endo = -60,
+        fiber_angle_epi = +60,
+        fiber_space = "P_1",
+        aha = True,
+    )
     marker_functions = pulse.MarkerFunctions(cfun=geo.cfun, ffun=geo.ffun, efun=geo.efun)
     microstructure = pulse.Microstructure(f0=geo.f0, s0=geo.s0, n0=geo.n0)
-    return pulse.HeartGeometry(
+    geometry=pulse.HeartGeometry(
         mesh=geo.mesh,
         markers=geo.markers,
         marker_functions=marker_functions,
         microstructure=microstructure,
     )
+    return geometry
 
 geometry = get_ellipsoid_geometry()
-
+geometry.mesh
+print(geometry.cavity_volume()/1000)
 #%%
 t_eval = np.linspace(*t_span, t_res)
 normal_activation_params = activation_model.default_parameters()
@@ -58,9 +74,7 @@ normal_activation = (
 systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
 t_eval_systole=t_eval[systole_ind:]
-# make a simple activation for testing
-#normal_activation_systole=np.linspace(0,50,200)[1:]
-#t_eval_systole=np.linspace(0,0.5,200)[1:]
+
 # %% Defining activation as dolfin.constant
 
 activation = dolfin.Constant(0.0, name='gamma')
@@ -85,7 +99,7 @@ for fc in dolfin.facets(geometry.mesh):
         for vertex in dolfin.vertices(fc):
             pnts.append(vertex.point().array())
 pnts=np.array(pnts)            
-EndoRing_radius=np.min((pnts[:,1]**2+pnts[:,2]**2))
+EndoRing_radius=np.sqrt(np.min((pnts[:,1]**2+pnts[:,2]**2)))
 print(f'Endoring radius is {EndoRing_radius}')
 # EndoRing_subDomain = dolfin.CompiledSubDomain('near(x[0], 1, 0.001) && near(pow(x[1],2)+pow(x[2],2), radius, 0.001)', radius=EndoRing_radius)
 
@@ -99,14 +113,14 @@ def AllBCs(W):
     )
     class EndoRing_subDomain(dolfin.SubDomain):
         def inside(self, x, on_boundary):
-            return dolfin.near(x[0], 5, 0.001) and dolfin.near(pow(x[1],2)+pow(x[2],2), 44.76124, 0.001)
+            return dolfin.near(x[0], 18.75, 1) and dolfin.near(pow(pow(x[1],2)+pow(x[2],2),0.5), 28.2, 1)
     endo_ring_fixed=dolfin.DirichletBC(
         V,
         dolfin.Constant((0.0,0.0,0.0)),
         EndoRing_subDomain(),
         method="pointwise",
     )
-    return endo_ring_fixed
+    return [bc_fixed_based,endo_ring_fixed]
 dirichlet_bc = (AllBCs,)
 
 
@@ -153,11 +167,12 @@ with dolfin.XDMFFile(outname.as_posix()) as xdmf:
     xdmf.write_checkpoint(reults_u, "u", float(0), dolfin.XDMFFile.Encoding.HDF5, True)
 # %%
 tau=t_eval_systole[1]-t_eval_systole[0]
-p_ao=1
-
 #%%
-def WK2(tau,p_ao,p_old,p_current,R,C):
-    if p_current>p_ao:
+def WK2(tau,p_ao,p_old,p_current,R,C,AVC_flag):
+    # AVC Aortic Valve Closure after ejection phase become True
+    if AVC_flag:
+        Q=0
+    elif p_current>p_ao:
         dp=(p_current-p_old)/tau
         Q=p_current/R+dp*C
     else:
@@ -206,9 +221,9 @@ def dV_FE(problem):
     # problem.solve()
     return dVdp
     
-def dV_WK2(fun,tau,p_old,p_current,R,C):
-    eval1=fun(tau,p_ao,p_old,p_current,R,C)
-    eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C)
+def dV_WK2(fun,tau,p_old,p_current,R,C,AVC_flag):
+    eval1=fun(tau,p_ao,p_old,p_current,R,C,AVC_flag)
+    eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C,AVC_flag)
     return (eval2-eval1)/(p_current*.01)
 
 
@@ -221,6 +236,7 @@ def get_lvv_from_problem(problem):
     return problem.geometry.cavity_volume(u=problem.state.sub(0))
 
 #%%
+AVC_flag=False
 for t in range(len(normal_activation_systole)):
     print('================================')
     print("Applying Contraction...")
@@ -235,6 +251,11 @@ for t in range(len(normal_activation_systole)):
         p_current=p_current*1.01
     else:
         p_current=pres[-1]+(pres[-1]-pres[-2])
+        
+    if p_current<p_ao and (pres[-1]-pres[-2])<0:
+        AVC_flag=True
+    else:
+        AVC_flag=False
     #
     #  Backup the problem
     state_backup = problem.state.copy(deepcopy=True)
@@ -245,10 +266,10 @@ for t in range(len(normal_activation_systole)):
     p_old=pres[-1]
     v_old=vols[-1]
     R=[]
-    tol=0.00001*v_old
+    tol=0.0001*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
         pi=0
-        p_steps=2
+        p_steps=3
         k=0
         flag_solved=False
         while k<10 and not flag_solved:
@@ -269,13 +290,13 @@ for t in range(len(normal_activation_systole)):
                     print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
                     break;
         v_current=get_lvv_from_problem(problem)
-        Q=WK2(tau,p_ao,p_old,p_current,0.01,1)
+        Q=WK2(tau,p_ao,p_old,p_current,0.01,1,AVC_flag)
         v_fe=v_current
         v_circ=v_old-Q
         R.append(v_fe-v_circ)
         if np.abs(R[-1])>tol:
             dVFE_dP=dV_FE(problem)
-            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1)
+            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1,AVC_flag)
             J=dVFE_dP+dQCirc_dP
             p_current=p_current-R[-1]/J
             circ_iter+=1
@@ -298,7 +319,17 @@ for t in range(len(normal_activation_systole)):
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
-    if t>27:
-        break
+    # if t>40:
+    #     break
     
+# %%
+plt.scatter(target_activation)
+plt.plot(t_eval_systole,normal_activation_systole)
+plt.ylabel('Acitvation (kPa)')
+plt.xlabel('Cardiac Cycle (-)')
+
+
+plt.plot(np.array(vols)/1000,pres)
+plt.ylabel('Pressure (kPa)')
+plt.xlabel('Volume (mL)')
 # %%
