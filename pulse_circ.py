@@ -63,6 +63,7 @@ print(geometry.cavity_volume()/1000)
 #%%
 t_eval = np.linspace(*t_span, t_res)
 normal_activation_params = activation_model.default_parameters()
+normal_activation_params['sigma_0']=200e3
 normal_activation = (
     activation_model.activation_function(
         t_span=t_span,
@@ -266,8 +267,8 @@ for t in range(len(normal_activation_systole)):
     p_old=pres[-1]
     v_old=vols[-1]
     R=[]
-    tol=0.0001*v_old
-    while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<10):
+    tol=0.00001*v_old
+    while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
         # pi=0
         # p_steps=2
         # k=0
