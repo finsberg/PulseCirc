@@ -16,27 +16,41 @@ from pulse.utils import getLogger
 logger = getLogger(__name__)
 
 
-#%%Parameters
+#%% Parameters
+R_circ=0.001
+C_circ=1
 
 t_res=500
 t_span = (0.0, 1.0)
-# Aortic Pressure: the pressure from which the ejection start
-p_ao=12
 
+# # Aortic Pressure: the pressure from which the ejection start
+# p_ao=12
+p_ao=3.5
+
+# # Assuming 50 mm for LVEDd (ED diameter), and 7.5mm for wall thickness.  
+# r_short_endo = 30
+# r_short_epi = 37.5
+# r_long_endo = 55
+# r_long_epi = 60
+# mesh_size=10
+r_short_endo = 7
+r_short_epi = 10
+r_long_endo = 17
+r_long_epi = 20
+mesh_size=3
+# # Sigma_0 for activation parameter
+sigma_0=50e3
+
+results_name='results_v3.xdmf'
 #%%
-def get_ellipsoid_geometry(folder=Path("lv")):
-    # Assuming 50 mm for LVEDd (ED diameter), and 7.5mm for wall thickness. For the 
-    r_short_endo = 30
-    r_short_epi = 37.5
-    r_long_endo = 55
-    r_long_epi = 60
+def get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = 7,r_short_epi = 10,r_long_endo = 17,r_long_epi = 20, mesh_size=3):
     geo = cardiac_geometries.mesh.create_lv_ellipsoid(
         outdir= folder,
         r_short_endo = r_short_endo,
         r_short_epi = r_short_epi,
         r_long_endo = r_long_endo,
         r_long_epi = r_long_epi,
-        psize_ref = 10,
+        psize_ref = mesh_size,
         mu_apex_endo = -np.pi,
         mu_base_endo = -np.arccos(r_short_epi / r_long_endo/2),
         mu_apex_epi = -np.pi,
@@ -57,13 +71,13 @@ def get_ellipsoid_geometry(folder=Path("lv")):
     )
     return geometry
 
-geometry = get_ellipsoid_geometry()
+geometry = get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = r_short_endo, r_short_epi = r_short_epi, r_long_endo = r_long_endo, r_long_epi = r_long_epi, mesh_size=mesh_size)
 geometry.mesh
-print(geometry.cavity_volume()/1000)
+print(geometry.cavity_volume())
 #%%
 t_eval = np.linspace(*t_span, t_res)
 normal_activation_params = activation_model.default_parameters()
-normal_activation_params['sigma_0']=200e3
+normal_activation_params['sigma_0']=sigma_0
 normal_activation = (
     activation_model.activation_function(
         t_span=t_span,
@@ -114,7 +128,7 @@ def AllBCs(W):
     )
     class EndoRing_subDomain(dolfin.SubDomain):
         def inside(self, x, on_boundary):
-            return dolfin.near(x[0], 18.75, 1) and dolfin.near(pow(pow(x[1],2)+pow(x[2],2),0.5), 28.2, 1)
+            return dolfin.near(x[0], 5, .01) and dolfin.near(pow(pow(x[1],2)+pow(x[2],2),0.5), 6.69, .5)
     endo_ring_fixed=dolfin.DirichletBC(
         V,
         dolfin.Constant((0.0,0.0,0.0)),
@@ -141,9 +155,9 @@ bcs = pulse.BoundaryConditions(
 #%%
 problem = pulse.MechanicsProblem(geometry, material, bcs)
 
-outdir = Path("results_pulse_circ")
+outdir = Path("results")
 outdir.mkdir(exist_ok=True, parents=True)
-outname = Path(outdir) / "results_v2.xdmf"
+outname = Path(outdir) / results_name
 if outname.is_file():
     outname.unlink()
     outname.with_suffix(".h5").unlink()
@@ -261,13 +275,13 @@ for t in range(len(normal_activation_systole)):
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
         pulse.iterate.iterate(problem, lvp, p_current)
         v_current=get_lvv_from_problem(problem)
-        Q=WK2(tau,p_ao,p_old,p_current,0.03,1,AVC_flag)
+        Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
         v_fe=v_current
         v_circ=v_old-Q
         R.append(v_fe-v_circ)
         if np.abs(R[-1])>tol:
             dVFE_dP=dV_FE(problem)
-            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.03,1,AVC_flag)
+            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,R_circ,C_circ,AVC_flag)
             J=dVFE_dP+dQCirc_dP
             p_current=p_current-R[-1]/J
             circ_iter+=1
@@ -279,16 +293,18 @@ for t in range(len(normal_activation_systole)):
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
-    
-# %%
-# plt.figure(0)
-# plt.scatter(t_eval_systole(t),target_activation)
-# plt.plot(t_eval_systole,normal_activation_systole)
-# plt.ylabel('Acitvation (kPa)')
-# plt.xlabel('Cardiac Cycle (-)')
-
-# plt.figure(1)
-# plt.plot(np.array(vols)/1000,pres)
-# plt.ylabel('Pressure (kPa)')
-# plt.xlabel('Volume (mL)')
-# %%
+    if t%20==0:
+        plt.figure(0)
+        plt.scatter(t_eval_systole[t],target_activation)
+        plt.plot(t_eval_systole,normal_activation_systole)
+        plt.ylabel('Acitvation (kPa)')
+        plt.xlabel('Cardiac Cycle (-)')
+        name='activation_' + str(t) + '.png'
+        plt.savefig(Path(outdir) / name)
+        plt.figure(1)
+        plt.plot(np.array(vols),pres)
+        plt.ylabel('Pressure (kPa)')
+        plt.xlabel('Volume (mm3)')
+        name='PV Loop_' + str(t) + '.png'
+        plt.savefig(Path(outdir) / name)
+#%%    
