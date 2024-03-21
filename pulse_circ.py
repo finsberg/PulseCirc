@@ -253,40 +253,12 @@ for t in range(len(normal_activation_systole)):
         AVC_flag=True
     else:
         AVC_flag=False
-    #
-    #  Backup the problem
-    state_backup = problem.state.copy(deepcopy=True)
-    lvp_value_backup=get_lvp_from_problem(problem).values()[0]
-    #
-    #
     problem.solve()
     p_old=pres[-1]
     v_old=vols[-1]
     R=[]
     tol=0.00001*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
-        # pi=0
-        # p_steps=2
-        # k=0
-        # flag_solved=False
-        # while k<10 and not flag_solved:
-        #     p_list=np.linspace(float(lvp), p_current, p_steps)[1:]
-        #     for pi in p_list:
-        #         print(pi)
-        #         try:
-        #             pulse.iterate.iterate(problem, lvp, pi)
-        #             # lvp.assign(pi)
-        #             # problem.solve()
-        #             flag_solved=True
-        #         except pulse.mechanicsproblem.SolverDidNotConverge:
-        #             problem.state.assign(state_backup)
-        #             lvp.assign(lvp_value_backup)
-        #             problem.solve()
-        #             p_steps+=1
-        #             k+=1
-        #             flag_solved=False
-        #             print(f"Problem not Converged, reset to initial problem and increasing the steps to : {p_steps}")
-        #             break;
         pulse.iterate.iterate(problem, lvp, p_current)
         v_current=get_lvv_from_problem(problem)
         Q=WK2(tau,p_ao,p_old,p_current,0.03,1,AVC_flag)
@@ -299,12 +271,7 @@ for t in range(len(normal_activation_systole)):
             J=dVFE_dP+dQCirc_dP
             p_current=p_current-R[-1]/J
             circ_iter+=1
-    # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
-    # problem.state.assign(problem_circ.state)
     p_current=get_lvp_from_problem(problem).values()[0]
-    # lvp.assign(p_current)
-    # problem.solve()
-    # pulse.iterate.iterate(problem, lvp, p_current)
     v_current=get_lvv_from_problem(problem)
     vols.append(v_current)
     pres.append(p_current)
@@ -312,29 +279,16 @@ for t in range(len(normal_activation_systole)):
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
-    if t%25==0:
-        print(f"Time Step: {t+1} out of {len(normal_activation_systole)} is converged")
-        plt.figure(0)
-        plt.plot(np.array(vols)/1000,pres)
-        plt.ylabel('Pressure (kPa)')
-        plt.xlabel('Volume (mL)')
-        plt.show()
-        plt.figure(1)
-        plt.plot(t_eval_systole,normal_activation_systole)
-        plt.ylabel('Acitvation (kPa)')
-        plt.xlabel('Cardiac Cycle (-)')
-        plt.show()
-    # if t>40:
-    #     break
     
 # %%
-plt.scatter(t_eval_systole(t),target_activation)
-plt.plot(t_eval_systole,normal_activation_systole)
-plt.ylabel('Acitvation (kPa)')
-plt.xlabel('Cardiac Cycle (-)')
+# plt.figure(0)
+# plt.scatter(t_eval_systole(t),target_activation)
+# plt.plot(t_eval_systole,normal_activation_systole)
+# plt.ylabel('Acitvation (kPa)')
+# plt.xlabel('Cardiac Cycle (-)')
 
-
-plt.plot(np.array(vols)/1000,pres)
-plt.ylabel('Pressure (kPa)')
-plt.xlabel('Volume (mL)')
+# plt.figure(1)
+# plt.plot(np.array(vols)/1000,pres)
+# plt.ylabel('Pressure (kPa)')
+# plt.xlabel('Volume (mL)')
 # %%
