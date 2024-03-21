@@ -239,13 +239,9 @@ def get_lvv_from_problem(problem):
 #%%
 AVC_flag=False
 for t in range(len(normal_activation_systole)):
-    print('================================')
-    print("Applying Contraction...")
     target_activation=normal_activation_systole[t]
     pulse.iterate.iterate(problem, activation, target_activation)
     #### Circulation
-    print('================================')
-    print("Finding the corresponding LV pressure...")
     circ_iter=0
     # initial guess for new pressure
     if t==0:
@@ -293,18 +289,16 @@ for t in range(len(normal_activation_systole)):
         #             break;
         pulse.iterate.iterate(problem, lvp, p_current)
         v_current=get_lvv_from_problem(problem)
-        Q=WK2(tau,p_ao,p_old,p_current,0.01,1,AVC_flag)
+        Q=WK2(tau,p_ao,p_old,p_current,0.03,1,AVC_flag)
         v_fe=v_current
         v_circ=v_old-Q
         R.append(v_fe-v_circ)
         if np.abs(R[-1])>tol:
             dVFE_dP=dV_FE(problem)
-            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.01,1,AVC_flag)
+            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,0.03,1,AVC_flag)
             J=dVFE_dP+dQCirc_dP
             p_current=p_current-R[-1]/J
             circ_iter+=1
-            print('--------------------------------')
-            print(f"LV Pressure is updated based on circulation, new LVP: {p_current}")
     # Assign the new state (from problem_circ) to the problem to use as estimation for iterate problem
     # problem.state.assign(problem_circ.state)
     p_current=get_lvp_from_problem(problem).values()[0]
@@ -314,21 +308,27 @@ for t in range(len(normal_activation_systole)):
     v_current=get_lvv_from_problem(problem)
     vols.append(v_current)
     pres.append(p_current)
-    # print('================================')
-    # print(f"Time Step: {t}, is converged with Circulation Residuals of : {R}")
-    print(f"Time Step: {t+1} out of {len(normal_activation_systole)} is converged")
-    # print(f"The pressures are : {pres}")
-    # print(f"The volumes are : {vols}")
-    print('================================')
     reults_u, p = problem.state.split(deepcopy=True)
     reults_u.t=t+1
     with dolfin.XDMFFile(outname.as_posix()) as xdmf:
         xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
+    if t%25==0:
+        print(f"Time Step: {t+1} out of {len(normal_activation_systole)} is converged")
+        plt.figure(0)
+        plt.plot(np.array(vols)/1000,pres)
+        plt.ylabel('Pressure (kPa)')
+        plt.xlabel('Volume (mL)')
+        plt.show()
+        plt.figure(1)
+        plt.plot(t_eval_systole,normal_activation_systole)
+        plt.ylabel('Acitvation (kPa)')
+        plt.xlabel('Cardiac Cycle (-)')
+        plt.show()
     # if t>40:
     #     break
     
 # %%
-plt.scatter(target_activation)
+plt.scatter(t_eval_systole(t),target_activation)
 plt.plot(t_eval_systole,normal_activation_systole)
 plt.ylabel('Acitvation (kPa)')
 plt.xlabel('Cardiac Cycle (-)')
