@@ -17,7 +17,7 @@ logger = getLogger(__name__)
 
 
 #%% Parameters
-R_circ=0.001
+R_circ=0.01
 C_circ=1
 
 t_res=500
@@ -135,7 +135,7 @@ def AllBCs(W):
         EndoRing_subDomain(),
         method="pointwise",
     )
-    return [endo_ring_fixed]
+    return [bc_fixed_based,endo_ring_fixed]
 dirichlet_bc = (AllBCs,)
 
 
@@ -252,59 +252,64 @@ def get_lvv_from_problem(problem):
 
 #%%
 AVC_flag=False
-for t in range(len(normal_activation_systole)):
-    target_activation=normal_activation_systole[t]
-    pulse.iterate.iterate(problem, activation, target_activation)
-    #### Circulation
-    circ_iter=0
-    # initial guess for new pressure
-    if t==0:
-        p_current=p_current*1.01
-    else:
-        p_current=pres[-1]+(pres[-1]-pres[-2])
-        
-    if p_current<p_ao and (pres[-1]-pres[-2])<0:
-        AVC_flag=True
-    else:
-        AVC_flag=False
-    problem.solve()
-    p_old=pres[-1]
-    v_old=vols[-1]
-    R=[]
-    tol=0.00001*v_old
-    while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
-        pulse.iterate.iterate(problem, lvp, p_current)
+import csv
+with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(['Time', 'Activation', 'Volume', 'Pressure'])
+    for t in range(len(normal_activation_systole)):
+        target_activation=normal_activation_systole[t]
+        pulse.iterate.iterate(problem, activation, target_activation)
+        #### Circulation
+        circ_iter=0
+        # initial guess for new pressure
+        if t==0:
+            p_current=p_current*1.01
+        else:
+            p_current=pres[-1]+(pres[-1]-pres[-2])
+            
+        if p_current<p_ao and (pres[-1]-pres[-2])<0:
+            AVC_flag=True
+        else:
+            AVC_flag=False
+        problem.solve()
+        p_old=pres[-1]
+        v_old=vols[-1]
+        R=[]
+        tol=0.00001*v_old
+        while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
+            pulse.iterate.iterate(problem, lvp, p_current)
+            v_current=get_lvv_from_problem(problem)
+            Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
+            v_fe=v_current
+            v_circ=v_old-Q
+            R.append(v_fe-v_circ)
+            if np.abs(R[-1])>tol:
+                dVFE_dP=dV_FE(problem)
+                dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,R_circ,C_circ,AVC_flag)
+                J=dVFE_dP+dQCirc_dP
+                p_current=p_current-R[-1]/J
+                circ_iter+=1
+        p_current=get_lvp_from_problem(problem).values()[0]
         v_current=get_lvv_from_problem(problem)
-        Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
-        v_fe=v_current
-        v_circ=v_old-Q
-        R.append(v_fe-v_circ)
-        if np.abs(R[-1])>tol:
-            dVFE_dP=dV_FE(problem)
-            dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,R_circ,C_circ,AVC_flag)
-            J=dVFE_dP+dQCirc_dP
-            p_current=p_current-R[-1]/J
-            circ_iter+=1
-    p_current=get_lvp_from_problem(problem).values()[0]
-    v_current=get_lvv_from_problem(problem)
-    vols.append(v_current)
-    pres.append(p_current)
-    reults_u, p = problem.state.split(deepcopy=True)
-    reults_u.t=t+1
-    with dolfin.XDMFFile(outname.as_posix()) as xdmf:
-        xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
-    if t%20==0:
-        plt.figure(0)
-        plt.scatter(t_eval_systole[t],target_activation)
-        plt.plot(t_eval_systole,normal_activation_systole)
-        plt.ylabel('Acitvation (kPa)')
-        plt.xlabel('Cardiac Cycle (-)')
-        name='activation_' + str(t) + '.png'
-        plt.savefig(Path(outdir) / name)
-        plt.figure(1)
-        plt.plot(np.array(vols),pres)
-        plt.ylabel('Pressure (kPa)')
-        plt.xlabel('Volume (mm3)')
-        name='PV Loop_' + str(t) + '.png'
-        plt.savefig(Path(outdir) / name)
+        vols.append(v_current)
+        pres.append(p_current)
+        reults_u, p = problem.state.split(deepcopy=True)
+        reults_u.t=t+1
+        with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+            xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
+        writer.writerow([t,target_activation, v_current, p_current])
+        if t%20==0:
+            plt.figure(0)
+            plt.scatter(t_eval_systole[t],target_activation)
+            plt.plot(t_eval_systole,normal_activation_systole)
+            plt.ylabel('Acitvation (kPa)')
+            plt.xlabel('Cardiac Cycle (-)')
+            name='activation_' + str(t) + '.png'
+            plt.savefig(Path(outdir) / name)
+            plt.figure(1)
+            plt.plot(np.array(vols),pres)
+            plt.ylabel('Pressure (kPa)')
+            plt.xlabel('Volume (mm3)')
+            name='PV Loop_' + str(t) + '.png'
+            plt.savefig(Path(outdir) / name)
 #%%    
