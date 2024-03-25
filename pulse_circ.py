@@ -20,12 +20,12 @@ logger = getLogger(__name__)
 R_circ=10
 C_circ=0.1
 
-t_res=500
+t_res=1000
 t_span = (0.0, 1.0)
 
 # # Aortic Pressure: the pressure from which the ejection start
-# p_ao=12
-p_ao=2
+p_ao=12
+# p_ao=2
 
 # # Assuming 50 mm for LVEDd (ED diameter), and 7.5mm for wall thickness.  
 # r_short_endo = 30
@@ -39,9 +39,9 @@ r_long_endo = 17
 r_long_epi = 20
 mesh_size=3
 # # Sigma_0 for activation parameter
-sigma_0=100e3
+sigma_0=50e3
 
-results_name='results_v3.xdmf'
+results_name='results_R10_C01_P12_Sigma50.xdmf'
 #%%
 def get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = 7,r_short_epi = 10,r_long_endo = 17,r_long_epi = 20, mesh_size=3):
     geo = cardiac_geometries.mesh.create_lv_ellipsoid(
@@ -165,17 +165,20 @@ if outname.is_file():
 #%%
 vols=[]
 pres=[]
+flows=[]
 # Saving the initial pressure and volume
 v_current=geometry.cavity_volume()
 p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
+flows.append(0)
 # %% Initialization to the atrium pressure of 0.2 kPa
 pulse.iterate.iterate(problem, lvp, 0.02, initial_number_of_steps=15)
 v_current=geometry.cavity_volume(u=problem.state.sub(0))
 p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
+flows.append(0)
 reults_u, p = problem.state.split(deepcopy=True)
 reults_u.t=0
 with dolfin.XDMFFile(outname.as_posix()) as xdmf:
@@ -294,23 +297,31 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         v_current=get_lvv_from_problem(problem)
         vols.append(v_current)
         pres.append(p_current)
+        flows.append(Q)
         reults_u, p = problem.state.split(deepcopy=True)
         reults_u.t=t+1
         with dolfin.XDMFFile(outname.as_posix()) as xdmf:
             xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
         writer.writerow([t,target_activation, v_current, p_current])
-        if t%20==0:
-            plt.figure(0)
-            plt.scatter(t_eval_systole[t],target_activation)
-            plt.plot(t_eval_systole,normal_activation_systole)
-            plt.ylabel('Acitvation (kPa)')
-            plt.xlabel('Cardiac Cycle (-)')
-            name='activation_' + str(t) + '.png'
-            plt.savefig(Path(outdir) / name)
-            plt.figure(1)
-            plt.plot(np.array(vols),pres)
-            plt.ylabel('Pressure (kPa)')
-            plt.xlabel('Volume (mm3)')
-            name='PV Loop_' + str(t) + '.png'
-            plt.savefig(Path(outdir) / name)
+        # if t%20==0:
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # Create a figure and two subplots
+        axs[0].scatter(t_eval_systole[t], target_activation)
+        axs[0].plot(t_eval_systole, normal_activation_systole)
+        axs[0].set_ylabel('Activation (kPa)')
+        axs[0].set_xlabel('Cardiac Cycle (-)')
+        axs[1].plot(np.array(vols), pres)
+        axs[1].set_ylabel('Pressure (kPa)')
+        axs[1].set_xlabel('Volume (mm3)')
+        axs[1].set_xlim([0, 2700])  
+        axs[1].set_ylim([0, 15])  
+        axs[2].plot(np.linspace(0,t_eval_systole[t],t+3), flows)
+        axs[2].set_ylabel('Outflow (mm2/s)')
+        axs[2].set_xlabel('Cardiac Cycle (-)')
+        axs[2].set_xlim([0, 1])  
+        axs[2].set_ylim([0, 1800]) 
+        # Adjust layout
+        plt.tight_layout()
+        # Save the figure
+        name = 'plot_' + str(t) + '.png'
+        plt.savefig(Path(outdir) / name)
 #%%    
