@@ -17,15 +17,15 @@ logger = getLogger(__name__)
 
 
 #%% Parameters
-R_circ=0.01
-C_circ=1
+R_circ=10
+C_circ=0.1
 
 t_res=500
 t_span = (0.0, 1.0)
 
 # # Aortic Pressure: the pressure from which the ejection start
 # p_ao=12
-p_ao=3.5
+p_ao=2
 
 # # Assuming 50 mm for LVEDd (ED diameter), and 7.5mm for wall thickness.  
 # r_short_endo = 30
@@ -39,7 +39,7 @@ r_long_endo = 17
 r_long_epi = 20
 mesh_size=3
 # # Sigma_0 for activation parameter
-sigma_0=50e3
+sigma_0=100e3
 
 results_name='results_v3.xdmf'
 #%%
@@ -255,6 +255,7 @@ AVC_flag=False
 import csv
 with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
     writer = csv.writer(file)
+    writer.writerow(['P_ao', p_ao, '   R_circ', R_circ,'   C_circ', C_circ])
     writer.writerow(['Time', 'Activation', 'Volume', 'Pressure'])
     for t in range(len(normal_activation_systole)):
         target_activation=normal_activation_systole[t]
@@ -267,10 +268,10 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         else:
             p_current=pres[-1]+(pres[-1]-pres[-2])
             
-        if p_current<p_ao and (pres[-1]-pres[-2])<0:
-            AVC_flag=True
-        else:
-            AVC_flag=False
+        # if p_current<p_ao and (pres[-1]-pres[-2])<0:
+        #     AVC_flag=True
+        # else:
+        #     AVC_flag=False
         problem.solve()
         p_old=pres[-1]
         v_old=vols[-1]
