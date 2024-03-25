@@ -285,7 +285,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             v_current=get_lvv_from_problem(problem)
             Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
             v_fe=v_current
-            v_circ=v_old-Q
+            v_circ=v_old-Q*tau
             R.append(v_fe-v_circ)
             if np.abs(R[-1])>tol:
                 dVFE_dP=dV_FE(problem)
@@ -303,25 +303,23 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         with dolfin.XDMFFile(outname.as_posix()) as xdmf:
             xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
         writer.writerow([t,target_activation, v_current, p_current])
-        # if t%20==0:
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # Create a figure and two subplots
-        axs[0].scatter(t_eval_systole[t], target_activation)
-        axs[0].plot(t_eval_systole, normal_activation_systole)
-        axs[0].set_ylabel('Activation (kPa)')
-        axs[0].set_xlabel('Cardiac Cycle (-)')
-        axs[1].plot(np.array(vols), pres)
-        axs[1].set_ylabel('Pressure (kPa)')
-        axs[1].set_xlabel('Volume (mm3)')
-        axs[1].set_xlim([0, 2700])  
-        axs[1].set_ylim([0, 15])  
-        axs[2].plot(np.linspace(0,t_eval_systole[t],t+3), flows)
-        axs[2].set_ylabel('Outflow (mm2/s)')
-        axs[2].set_xlabel('Cardiac Cycle (-)')
-        axs[2].set_xlim([0, 1])  
-        axs[2].set_ylim([0, 1800]) 
-        # Adjust layout
-        plt.tight_layout()
-        # Save the figure
-        name = 'plot_' + str(t) + '.png'
-        plt.savefig(Path(outdir) / name)
+        if t%20==0:
+            fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # Create a figure and two subplots
+            axs[0].scatter(t_eval_systole[t], target_activation)
+            axs[0].plot(t_eval_systole, normal_activation_systole)
+            axs[0].set_ylabel('Activation (kPa)')
+            axs[0].set_xlabel('Cardiac Cycle (-)')
+            axs[1].plot(np.array(vols), pres)
+            axs[1].set_ylabel('Pressure (kPa)')
+            axs[1].set_xlabel('Volume (mm3)')
+            axs[1].set_xlim([0, 2700])  
+            axs[1].set_ylim([0, 15])  
+            axs[2].plot(np.linspace(0,t_eval_systole[t],t+3), flows)
+            axs[2].set_ylabel('Outflow (mm2/s)')
+            axs[2].set_xlabel('Cardiac Cycle (-)')
+            axs[2].set_xlim([0, 1])  
+            axs[2].set_ylim([0, 1800]) 
+            plt.tight_layout()
+            name = 'plot_' + str(t) + '.png'
+            plt.savefig(Path(outdir) / name)
 #%%    
