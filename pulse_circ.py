@@ -40,7 +40,7 @@ r_long_epi = 20
 mesh_size=3
 # # Sigma_0 for activation parameter
 sigma_0=150e3
-
+t_dias=0.415
 results_name='results_R1_C01_P10_Sigma150.xdmf'
 #%%
 def get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = 7,r_short_epi = 10,r_long_endo = 17,r_long_epi = 20, mesh_size=3):
@@ -78,6 +78,7 @@ print(geometry.cavity_volume())
 t_eval = np.linspace(*t_span, t_res)
 normal_activation_params = activation_model.default_parameters()
 normal_activation_params['sigma_0']=sigma_0
+normal_activation_params['t_dias']=t_dias
 normal_activation = (
     activation_model.activation_function(
         t_span=t_span,
