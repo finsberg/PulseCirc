@@ -296,6 +296,8 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
                 circ_iter+=1
         p_current=get_lvp_from_problem(problem).values()[0]
         v_current=get_lvv_from_problem(problem)
+        if p_current>p_ao:
+            p_ao=p_current
         vols.append(v_current)
         pres.append(p_current)
         flows.append(Q)
