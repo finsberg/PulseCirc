@@ -17,14 +17,14 @@ logger = getLogger(__name__)
 
 
 #%% Parameters
-R_circ=10
+R_circ=1
 C_circ=0.1
 
 t_res=1000
 t_span = (0.0, 1.0)
 
 # # Aortic Pressure: the pressure from which the ejection start
-p_ao=12
+p_ao=10
 # p_ao=2
 
 # # Assuming 50 mm for LVEDd (ED diameter), and 7.5mm for wall thickness.  
@@ -39,9 +39,9 @@ r_long_endo = 17
 r_long_epi = 20
 mesh_size=3
 # # Sigma_0 for activation parameter
-sigma_0=50e3
+sigma_0=150e3
 
-results_name='results_R10_C01_P12_Sigma50.xdmf'
+results_name='results_R1_C01_P10_Sigma150.xdmf'
 #%%
 def get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = 7,r_short_epi = 10,r_long_endo = 17,r_long_epi = 20, mesh_size=3):
     geo = cardiac_geometries.mesh.create_lv_ellipsoid(
@@ -259,7 +259,7 @@ import csv
 with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
     writer = csv.writer(file)
     writer.writerow(['P_ao', p_ao, '   R_circ', R_circ,'   C_circ', C_circ])
-    writer.writerow(['Time', 'Activation', 'Volume', 'Pressure'])
+    writer.writerow(['Time', 'Activation', 'Volume', 'Pressure','Outflow'])
     for t in range(len(normal_activation_systole)):
         target_activation=normal_activation_systole[t]
         pulse.iterate.iterate(problem, activation, target_activation)
@@ -285,7 +285,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             v_current=get_lvv_from_problem(problem)
             Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
             v_fe=v_current
-            v_circ=v_old-Q*tau
+            v_circ=v_old-Q
             R.append(v_fe-v_circ)
             if np.abs(R[-1])>tol:
                 dVFE_dP=dV_FE(problem)
@@ -302,7 +302,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         reults_u.t=t+1
         with dolfin.XDMFFile(outname.as_posix()) as xdmf:
             xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
-        writer.writerow([t,target_activation, v_current, p_current])
+        writer.writerow([t,target_activation, v_current, p_current,Q])
         if t%20==0:
             fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # Create a figure and two subplots
             axs[0].scatter(t_eval_systole[t], target_activation)
@@ -313,13 +313,16 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs[1].set_ylabel('Pressure (kPa)')
             axs[1].set_xlabel('Volume (mm3)')
             axs[1].set_xlim([0, 2700])  
-            axs[1].set_ylim([0, 15])  
+            axs[1].set_ylim([0, 20])  
             axs[2].plot(np.linspace(0,t_eval_systole[t],t+3), flows)
             axs[2].set_ylabel('Outflow (mm2/s)')
             axs[2].set_xlabel('Cardiac Cycle (-)')
             axs[2].set_xlim([0, 1])  
-            axs[2].set_ylim([0, 1800]) 
+            axs[2].set_ylim([0, 100]) 
             plt.tight_layout()
             name = 'plot_' + str(t) + '.png'
             plt.savefig(Path(outdir) / name)
+            plt.close()
+        if p_current<0:
+            break
 #%%    
