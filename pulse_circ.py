@@ -44,7 +44,7 @@ r_short_endo = 7
 r_short_epi = 10
 r_long_endo = 17
 r_long_epi = 20
-mesh_size=3
+mesh_size=5
 # # Sigma_0 for activation parameter
 sigma_0=150e3
 t_dias=0.415
@@ -238,7 +238,7 @@ def dV_WK3(p_current,tau,R_ao,circ_p_ao,circ_dp_ao):
     else:
         Q2=0
     p_current=p_current_backup
-    return (Q2-Q1)/(p_current*.01)
+    return (Q2-Q1)/(p_current*.01)*tau
 
 # def WK2(tau,p_ao,p_old,p_current,R,C,AVC_flag):
 #     # AVC Aortic Valve Closure after ejection phase become True
@@ -342,6 +342,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             if p_current>p_ao:
                 circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
                 circ_p_ao_current=circ_solution.y[0][1]
+                circ_dp_ao_current=circ_solution.y[1][1]
                 Q=(p_current-circ_p_ao_current)/R_ao
             else:
                 Q=0 
@@ -351,9 +352,9 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             R.append(v_fe-v_circ)
             if np.abs(R[-1])>tol:
                 dVFE_dP=dV_FE(problem)
-                dQCirc_dP = dV_WK3(p_current,tau,R_ao,circ_p_ao,circ_dp_ao)
+                dVCirc_dP = dV_WK3(p_current,tau,R_ao,circ_p_ao_current,circ_dp_ao_current)                
                 # dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,R_circ,C_circ,AVC_flag)
-                J=dVFE_dP+dQCirc_dP
+                J=dVFE_dP+dVCirc_dP
                 p_current=p_current-R[-1]/J
                 circ_iter+=1
         p_current=get_lvp_from_problem(problem).values()[0]
@@ -404,4 +405,4 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             plt.close()
         if p_current<0:
             break
-#%%   fix figure add PT figure check aortic pressure 
+#%%   
