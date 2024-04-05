@@ -7,18 +7,25 @@ import dolfin
 import ufl_legacy as ufl
 from pulse.solver import NonlinearSolver
 from pulse.solver import NonlinearProblem
-import copy
+from pulse.utils import getLogger
 
+import copy
+import csv
 import numpy as np
 import matplotlib.pyplot as plt
 import activation_model
-from pulse.utils import getLogger
+from scipy.integrate import solve_ivp
+
 logger = getLogger(__name__)
 
+global p_current, p_old
 
 #%% Parameters
-R_circ=1
-C_circ=0.1
+# Constants
+R_ao = 1e-3  #     aortic resistance
+R_circ = 1e-3  #   systemic circulation resistance
+C_circ = 1e-3   #   ystemic circulation capacitance
+
 
 t_res=1000
 t_span = (0.0, 1.0)
@@ -187,16 +194,59 @@ with dolfin.XDMFFile(outname.as_posix()) as xdmf:
 # %%
 tau=t_eval_systole[1]-t_eval_systole[0]
 #%%
-def WK2(tau,p_ao,p_old,p_current,R,C,AVC_flag):
-    # AVC Aortic Valve Closure after ejection phase become True
-    if AVC_flag:
-        Q=0
-    elif p_current>p_ao:
-        dp=(p_current-p_old)/tau
-        Q=p_current/R+dp*C
+
+def WK3(t,y):
+    # Defining WK3 function based on scipy.integrate.solve_ivp
+    # The main equations are, with p_{ao} and its derivatives are unkowns:
+    # 1. Q = \frac{p_{lv} - p_{ao}}{R_{ao}}
+    # 2. Q_R = \frac{p_{ao}}{R_{circ}}
+    # 3. Q_C = C_{circ} \cdot \frac{dp_{ao}}{dt}
+    # 4. Q = Q_R + Q_C
+    # 5. \frac{dp_{ao}}{dt} = y[1]
+    # 6. \frac{d^2p_{ao}}{dt^2} = \frac{Q - Q_R - Q_C}{C_{circ}}
+    p_ao = y[0]
+    dp_ao_dt = y[1]
+
+    # Calculating flows
+    p_lv_interpolated=p_old + (p_current - p_old) * t
+    Q = (p_lv_interpolated - p_ao) / R_ao
+    Q_R = p_ao / R_circ
+    Q_C = C_circ * dp_ao_dt
+
+    # Conservation of flow
+    dQ_C_dt = (Q - Q_R - Q_C) / C_circ
+    d2p_ao_dt2=dQ_C_dt
+
+    return [dp_ao_dt, d2p_ao_dt2]
+
+def dV_WK3(p_current,tau,R_ao,circ_p_ao,circ_dp_ao):
+    p_current_backup=p_current
+    circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+    if p_current>p_ao:
+        circ_p_ao_1=circ_solution.y[0][1]
+        Q1=(p_current-circ_p_ao_1)/R_ao
     else:
-        Q=0
-    return Q
+        Q1=0 
+    p_current=p_current*1.01
+    circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+    if p_current>p_ao:
+        circ_p_ao_2=circ_solution.y[0][1]
+        Q2=(p_current-circ_p_ao_2)/R_ao
+    else:
+        Q2=0
+    p_current=p_current_backup
+    return (Q2-Q1)/(p_current*.01)
+
+# def WK2(tau,p_ao,p_old,p_current,R,C,AVC_flag):
+#     # AVC Aortic Valve Closure after ejection phase become True
+#     if AVC_flag:
+#         Q=0
+#     elif p_current>p_ao:
+#         dp=(p_current-p_old)/tau
+#         Q=p_current/R+dp*C
+#     else:
+#         Q=0
+#     return Q
 def dV_FE(problem):
     """
     Calculating the dV/dP based on FE model. 
@@ -240,10 +290,10 @@ def dV_FE(problem):
     # problem.solve()
     return dVdp
     
-def dV_WK2(fun,tau,p_old,p_current,R,C,AVC_flag):
-    eval1=fun(tau,p_ao,p_old,p_current,R,C,AVC_flag)
-    eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C,AVC_flag)
-    return (eval2-eval1)/(p_current*.01)
+# def dV_WK2(fun,tau,p_old,p_current,R,C,AVC_flag):
+#     eval1=fun(tau,p_ao,p_old,p_current,R,C,AVC_flag)
+#     eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C,AVC_flag)
+#     return (eval2-eval1)/(p_current*.01)
 
 
 
@@ -256,7 +306,7 @@ def get_lvv_from_problem(problem):
 
 #%%
 AVC_flag=False
-import csv
+
 with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
     writer = csv.writer(file)
     writer.writerow(['P_ao', p_ao, '   R_circ', R_circ,'   C_circ', C_circ])
@@ -269,6 +319,8 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         # initial guess for new pressure
         if t==0:
             p_current=p_current*1.01
+            circ_p_ao = p_ao
+            circ_dp_ao=0
         else:
             p_current=pres[-1]+(pres[-1]-pres[-2])
             
@@ -276,7 +328,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         #     AVC_flag=True
         # else:
         #     AVC_flag=False
-        problem.solve()
+        # problem.solve()
         p_old=pres[-1]
         v_old=vols[-1]
         R=[]
@@ -284,20 +336,29 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
             pulse.iterate.iterate(problem, lvp, p_current)
             v_current=get_lvv_from_problem(problem)
-            Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
+            circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+            if p_current>p_ao:
+                circ_p_ao=circ_solution.y[0][1]
+                Q=(p_current-circ_p_ao)/R_ao
+            else:
+                Q=0 
+            # Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
             v_fe=v_current
-            v_circ=v_old-Q
+            v_circ=v_old-Q*tau
             R.append(v_fe-v_circ)
             if np.abs(R[-1])>tol:
                 dVFE_dP=dV_FE(problem)
-                dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,R_circ,C_circ,AVC_flag)
+                dQCirc_dP = dV_WK3(p_current,tau,R_ao,circ_p_ao,circ_dp_ao)
+                # dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,R_circ,C_circ,AVC_flag)
                 J=dVFE_dP+dQCirc_dP
                 p_current=p_current-R[-1]/J
                 circ_iter+=1
         p_current=get_lvp_from_problem(problem).values()[0]
         v_current=get_lvv_from_problem(problem)
         if p_current>p_ao:
-            p_ao=p_current
+            circ_p_ao=circ_solution.y[0][1]
+            circ_dp_ao=circ_solution.y[1][1]
+            p_ao=circ_p_ao
         vols.append(v_current)
         pres.append(p_current)
         flows.append(Q)
@@ -321,7 +382,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs[2].set_ylabel('Outflow (mm2/s)')
             axs[2].set_xlabel('Cardiac Cycle (-)')
             axs[2].set_xlim([0, 1])  
-            axs[2].set_ylim([0, 100]) 
+            axs[2].set_ylim([0, 10000]) 
             plt.tight_layout()
             name = 'plot_' + str(t) + '.png'
             plt.savefig(Path(outdir) / name)
