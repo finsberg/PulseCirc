@@ -22,9 +22,9 @@ global p_current, p_old
 
 #%% Parameters
 # Constants
-R_ao = 1e-3  #     aortic resistance
-R_circ = 1e-3  #   systemic circulation resistance
-C_circ = 1e-3   #   ystemic circulation capacitance
+R_ao = 1e-4  #     aortic resistance
+R_circ = 5e-3  #   systemic circulation resistance
+C_circ = 1e-4   #   ystemic circulation capacitance
 
 
 t_res=1000
@@ -174,12 +174,14 @@ if outname.is_file():
 vols=[]
 pres=[]
 flows=[]
+ao_pres=[]
 # Saving the initial pressure and volume
 v_current=geometry.cavity_volume()
 p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
 flows.append(0)
+ao_pres.append(p_ao)
 # %% Initialization to the atrium pressure of 0.2 kPa
 pulse.iterate.iterate(problem, lvp, 0.02, initial_number_of_steps=15)
 v_current=geometry.cavity_volume(u=problem.state.sub(0))
@@ -187,6 +189,7 @@ p_current=lvp.values()[0]
 vols.append(v_current)
 pres.append(p_current)
 flows.append(0)
+ao_pres.append(p_ao)
 reults_u, p = problem.state.split(deepcopy=True)
 reults_u.t=0
 with dolfin.XDMFFile(outname.as_posix()) as xdmf:
@@ -336,8 +339,8 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
             pulse.iterate.iterate(problem, lvp, p_current)
             v_current=get_lvv_from_problem(problem)
-            circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
             if p_current>p_ao:
+                circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
                 circ_p_ao=circ_solution.y[0][1]
                 Q=(p_current-circ_p_ao)/R_ao
             else:
@@ -362,12 +365,13 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         vols.append(v_current)
         pres.append(p_current)
         flows.append(Q)
+        ao_pres.append(p_ao)
         reults_u, p = problem.state.split(deepcopy=True)
         reults_u.t=t+1
         with dolfin.XDMFFile(outname.as_posix()) as xdmf:
             xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
         writer.writerow([t,target_activation, v_current, p_current,Q])
-        if t%20==0:
+        if t%10==0:
             fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # Create a figure and two subplots
             axs[0].scatter(t_eval_systole[t], target_activation)
             axs[0].plot(t_eval_systole, normal_activation_systole)
@@ -378,7 +382,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs[1].set_xlabel('Volume (mm3)')
             axs[1].set_xlim([0, 2700])  
             axs[1].set_ylim([0, 20])  
-            axs[2].plot(np.linspace(0,t_eval_systole[t],t+3), flows)
+            axs[2].plot(np.hstack(([0,0],t_eval_systole[:t])), flows)
             axs[2].set_ylabel('Outflow (mm2/s)')
             axs[2].set_xlabel('Cardiac Cycle (-)')
             axs[2].set_xlim([0, 1])  
@@ -387,6 +391,13 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             name = 'plot_' + str(t) + '.png'
             plt.savefig(Path(outdir) / name)
             plt.close()
+            fig, axs = plt.subplots() 
+            axs.plot(np.hstack(([0,0],t_eval_systole[:t])),pres,label='LV Pressure')
+            axs.plot(np.hstack(([0,0],t_eval_systole[:t])),ao_pres,label='Aortic Pressure')
+            axs.legend()
+            name = 'Pressure-Time_' + str(t) + '.png'
+            plt.savefig(Path(outdir) / name)
+            plt.close()
         if p_current<0:
             break
-#%%    
+#%%   fix figure add PT figure check aortic pressure 
