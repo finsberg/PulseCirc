@@ -23,7 +23,7 @@ global p_current, p_old
 #%% Parameters
 # Constants
 R_ao = 1e-4  #     aortic resistance
-R_circ = 5e-3  #   systemic circulation resistance
+R_circ = 1e-3  #   systemic circulation resistance
 C_circ = 1e-4   #   ystemic circulation capacitance
 
 
@@ -341,8 +341,8 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             v_current=get_lvv_from_problem(problem)
             if p_current>p_ao:
                 circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
-                circ_p_ao=circ_solution.y[0][1]
-                Q=(p_current-circ_p_ao)/R_ao
+                circ_p_ao_current=circ_solution.y[0][1]
+                Q=(p_current-circ_p_ao_current)/R_ao
             else:
                 Q=0 
             # Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
