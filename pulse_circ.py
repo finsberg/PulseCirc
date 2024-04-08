@@ -339,8 +339,8 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
             pulse.iterate.iterate(problem, lvp, p_current)
             v_current=get_lvv_from_problem(problem)
-            circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
-            if circ_solution.y[0][1]>p_ao:
+            if p_current>p_ao:
+                circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
                 circ_p_ao_current=circ_solution.y[0][1]
                 circ_dp_ao_current=circ_solution.y[1][1]
                 Q=(p_current-circ_p_ao_current)/R_ao
