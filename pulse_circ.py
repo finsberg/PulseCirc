@@ -335,16 +335,18 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         p_old=pres[-1]
         v_old=vols[-1]
         R=[]
-        tol=0.00001*v_old
+        tol=1e-6*v_old
         while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
             pulse.iterate.iterate(problem, lvp, p_current)
             v_current=get_lvv_from_problem(problem)
-            if p_current>p_ao:
-                circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+            circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+            if circ_solution.y[0][1]>p_ao:
                 circ_p_ao_current=circ_solution.y[0][1]
                 circ_dp_ao_current=circ_solution.y[1][1]
                 Q=(p_current-circ_p_ao_current)/R_ao
             else:
+                circ_p_ao_current=circ_p_ao
+                circ_dp_ao_current=circ_dp_ao
                 Q=0 
             # Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
             v_fe=v_current
@@ -365,13 +367,13 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             p_ao=circ_p_ao
         vols.append(v_current)
         pres.append(p_current)
-        flows.append(Q)
+        flows.append(Q*tau)
         ao_pres.append(p_ao)
         reults_u, p = problem.state.split(deepcopy=True)
         reults_u.t=t+1
         with dolfin.XDMFFile(outname.as_posix()) as xdmf:
             xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
-        writer.writerow([t,target_activation, v_current, p_current,Q])
+        writer.writerow([t,target_activation, v_current, p_current,flows[-1]])
         if t%10==0:
             fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # Create a figure and two subplots
             axs[0].scatter(t_eval_systole[t], target_activation)
@@ -387,7 +389,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs[2].set_ylabel('Outflow (mm2/s)')
             axs[2].set_xlabel('Cardiac Cycle (-)')
             axs[2].set_xlim([0, 1])  
-            axs[2].set_ylim([0, 10000]) 
+            axs[2].set_ylim([0, 100]) 
             plt.tight_layout()
             name = 'plot_' + str(t) + '.png'
             plt.savefig(Path(outdir) / name)
