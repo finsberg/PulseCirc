@@ -339,8 +339,9 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
             pulse.iterate.iterate(problem, lvp, p_current)
             v_current=get_lvv_from_problem(problem)
-            if p_current>p_ao:
-                circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+            circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+            # check the current p_ao vs previous p_ao to open the ao valve
+            if circ_solution.y[0][1]>p_ao:
                 circ_p_ao_current=circ_solution.y[0][1]
                 circ_dp_ao_current=circ_solution.y[1][1]
                 Q=(p_current-circ_p_ao_current)/R_ao
@@ -361,7 +362,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
                 circ_iter+=1
         p_current=get_lvp_from_problem(problem).values()[0]
         v_current=get_lvv_from_problem(problem)
-        if p_current>p_ao:
+        if circ_solution.y[0][1]>p_ao:
             circ_p_ao=circ_solution.y[0][1]
             circ_dp_ao=circ_solution.y[1][1]
             p_ao=circ_p_ao
