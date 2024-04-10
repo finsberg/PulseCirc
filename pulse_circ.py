@@ -23,10 +23,10 @@ global p_current, p_old
 #%% Parameters
 # [ms] [cm] [ml] [kPa] 
 # Constants
-# REF: Marx, L., Gsell, M. A. F., Rund, A., Caforio, F., Prassl, A. J., Toth-Gayor, G., Kuehne, T., Augustin, C. M., & Plank, G. (2020). Personalization of electro-mechanical models of the pressure-overloaded left ventricle: Fitting of Windkessel-type afterload models: Fitting of Windkessel afterload models. Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences, 378(2173). https://doi.org/10.1098/rsta.2019.0342
-R_ao = 10     #   aortic resistance [kPa][ml][ms]^{-1}
-R_circ = 100  #   systemic circulation resistance [kPa][ml][ms]^{-1}
-C_circ = 10   #   ystemic circulation capacitance [ml][kPa]^{-1}
+
+R_ao = 1     #   aortic resistance [kPa][ml][ms]^{-1}
+R_circ = 10  #   systemic circulation resistance [kPa][ml][ms]^{-1}
+C_circ = 5   #   ystemic circulation capacitance [ml][kPa]^{-1}
 
 t_res=1000
 # t_span = (0.0, 1000.0)
@@ -45,7 +45,7 @@ r_long_epi = 5.5
 # r_short_epi = 10
 # r_long_endo = 17
 # r_long_epi = 20
-mesh_size=2
+mesh_size=3
 # # Sigma_0 for activation parameter
 sigma_0=150     #[kPa]
 t_sys=160      #[ms]
@@ -390,13 +390,13 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs[1].plot(np.array(vols), pres)
             axs[1].set_ylabel('Pressure (kPa)')
             axs[1].set_xlabel('Volume (ml)')
-            axs[1].set_xlim([100, 175])  
+            axs[1].set_xlim([50, 175])  
             axs[1].set_ylim([0, 15])  
             axs[2].plot(np.hstack(([0,0],t_eval_systole[:t+1])), flows)
             axs[2].set_ylabel('Outflow (ml/s)')
             axs[2].set_xlabel('Time (ms)')
             axs[2].set_xlim([0, 1000])  
-            axs[2].set_ylim([0, 20]) 
+            axs[2].set_ylim([0, 1]) 
             plt.tight_layout()
             name = 'plot_' + str(t) + '.png'
             plt.savefig(Path(outdir) / name)
@@ -405,9 +405,9 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs.plot(np.hstack(([0,0],t_eval_systole[:t+1])),pres,label='LV Pressure')
             axs.plot(np.hstack(([0,0],t_eval_systole[:t+1])),ao_pres,label='Aortic Pressure')
             axs.legend()
-            axs.set_xlim([0, 1])  
-            axs.set_ylim([0, 1]) 
-            axs.set_xlabel('Cardiac Cycle (-)')
+            axs.set_xlim([0, 1000])  
+            axs.set_ylim([0, 15]) 
+            axs.set_xlabel('Time (ms)')
             axs.set_ylabel('Pressure (kPa)')
             name = 'Pressure-Time_' + str(t) + '.png'
             plt.savefig(Path(outdir) / name)
