@@ -25,7 +25,7 @@ global p_current, p_old
 R_ao = 1e-4  #     aortic resistance
 R_circ = 1e-3  #   systemic circulation resistance
 C_circ = 1e-4   #   ystemic circulation capacitance
-
+p_dia=10
 
 t_res=1000
 t_span = (0.0, 1.0)
@@ -213,7 +213,7 @@ def WK3(t,y):
     # Calculating flows
     p_lv_interpolated=p_old + (p_current - p_old) * t
     Q = (p_lv_interpolated - p_ao) / R_ao
-    Q_R = p_ao / R_circ
+    Q_R = (p_ao-p_dia) / R_circ
     Q_C = C_circ * dp_ao_dt
 
     # Conservation of flow
