@@ -40,11 +40,6 @@ r_short_endo = 3
 r_short_epi = 3.75
 r_long_endo = 5.0
 r_long_epi = 5.5
-# mesh_size=10
-# r_short_endo = 7
-# r_short_epi = 10
-# r_long_endo = 17
-# r_long_epi = 20
 mesh_size=3
 # # Sigma_0 for activation parameter
 sigma_0=150     #[kPa]
@@ -203,7 +198,6 @@ with dolfin.XDMFFile(outname.as_posix()) as xdmf:
 # %%
 tau=t_eval_systole[1]-t_eval_systole[0]
 #%%
-
 def WK3(t,y):
     # Defining WK3 function based on scipy.integrate.solve_ivp
     # The main equations are, with p_{ao} and its derivatives are unkowns:
@@ -246,16 +240,6 @@ def dV_WK3(p_current,tau,R_ao,circ_p_ao,circ_dp_ao):
     p_current=p_current_backup
     return (Q2-Q1)/(p_current*.01)*tau
 
-# def WK2(tau,p_ao,p_old,p_current,R,C,AVC_flag):
-#     # AVC Aortic Valve Closure after ejection phase become True
-#     if AVC_flag:
-#         Q=0
-#     elif p_current>p_ao:
-#         dp=(p_current-p_old)/tau
-#         Q=p_current/R+dp*C
-#     else:
-#         Q=0
-#     return Q
 def dV_FE(problem):
     """
     Calculating the dV/dP based on FE model. 
@@ -299,12 +283,6 @@ def dV_FE(problem):
     # problem.solve()
     return dVdp
     
-# def dV_WK2(fun,tau,p_old,p_current,R,C,AVC_flag):
-#     eval1=fun(tau,p_ao,p_old,p_current,R,C,AVC_flag)
-#     eval2=fun(tau,p_ao,p_old,p_current*1.01,R,C,AVC_flag)
-#     return (eval2-eval1)/(p_current*.01)
-
-
 
 def get_lvp_from_problem(problem):
     # getting the LV pressure which is assinged as Neumann BC from a Pulse.MechanicsProblem
@@ -314,104 +292,84 @@ def get_lvv_from_problem(problem):
     return problem.geometry.cavity_volume(u=problem.state.sub(0))
 
 #%%
-AVC_flag=False
-
-with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(['P_ao', p_ao, '   R_circ', R_circ,'   C_circ', C_circ])
-    writer.writerow(['Time', 'Activation', 'Volume', 'Pressure','Outflow'])
-    for t in range(len(normal_activation_systole)):
-        target_activation=normal_activation_systole[t]
-        pulse.iterate.iterate(problem, activation, target_activation)
-        #### Circulation
-        circ_iter=0
-        # initial guess for new pressure
-        if t==0:
-            p_current=p_current*1.01
-            circ_p_ao = p_ao
-            circ_dp_ao=0
-        else:
-            p_current=pres[-1]+(pres[-1]-pres[-2])
-            
-        # if p_current<p_ao and (pres[-1]-pres[-2])<0:
-        #     AVC_flag=True
-        # else:
-        #     AVC_flag=False
-        # problem.solve()
-        p_old=pres[-1]
-        v_old=vols[-1]
-        R=[]
-        tol=1e-4*v_old
-        while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
-            pulse.iterate.iterate(problem, lvp, p_current)
-            v_current=get_lvv_from_problem(problem)
-            circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
-            # check the current p_ao vs previous p_ao to open the ao valve
-            if circ_solution.y[0][1]>p_ao:
-                circ_p_ao_current=circ_solution.y[0][1]
-                circ_dp_ao_current=circ_solution.y[1][1]
-                Q=(p_current-circ_p_ao_current)/R_ao
-            else:
-                circ_p_ao_current=circ_p_ao
-                circ_dp_ao_current=circ_dp_ao
-                Q=0 
-            # Q=WK2(tau,p_ao,p_old,p_current,R_circ,C_circ,AVC_flag)
-            v_fe=v_current
-            v_circ=v_old-Q*tau
-            R.append(v_fe-v_circ)
-            if np.abs(R[-1])>tol:
-                dVFE_dP=dV_FE(problem)
-                dVCirc_dP = dV_WK3(p_current,tau,R_ao,circ_p_ao_current,circ_dp_ao_current)                
-                # dQCirc_dP=dV_WK2(WK2,tau,p_old,p_current,R_circ,C_circ,AVC_flag)
-                J=dVFE_dP+dVCirc_dP
-                p_current=p_current-R[-1]/J
-                circ_iter+=1
-        p_current=get_lvp_from_problem(problem).values()[0]
+for t in range(len(normal_activation_systole)):
+    target_activation=normal_activation_systole[t]
+    pulse.iterate.iterate(problem, activation, target_activation)
+    #### Circulation
+    circ_iter=0
+    # initial guess for new pressure
+    if t==0:
+        p_current=p_current*1.01
+        circ_p_ao = p_ao
+        circ_dp_ao=0
+    else:
+        p_current=pres[-1]+(pres[-1]-pres[-2])
+        
+    p_old=pres[-1]
+    v_old=vols[-1]
+    R=[]
+    tol=1e-4*v_old
+    while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
+        pulse.iterate.iterate(problem, lvp, p_current)
         v_current=get_lvv_from_problem(problem)
+        circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+        # check the current p_ao vs previous p_ao to open the ao valve
         if circ_solution.y[0][1]>p_ao:
-            circ_p_ao=circ_solution.y[0][1]
-            circ_dp_ao=circ_solution.y[1][1]
-            p_ao=circ_p_ao
-        vols.append(v_current)
-        pres.append(p_current)
-        flows.append(Q*tau)
-        ao_pres.append(p_ao)
-        reults_u, p = problem.state.split(deepcopy=True)
-        reults_u.t=t+1
-        with dolfin.XDMFFile(outname.as_posix()) as xdmf:
-            xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
-        writer.writerow([t,target_activation, v_current, p_current,flows[-1]])
-        if t%10==0:
-            fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # Create a figure and two subplots
-            axs[0].scatter(t_eval_systole[t], target_activation)
-            axs[0].plot(t_eval_systole, normal_activation_systole)
-            axs[0].set_ylabel('Activation (kPa)')
-            axs[0].set_xlabel('Time (ms)')
-            axs[1].plot(np.array(vols), pres)
-            axs[1].set_ylabel('Pressure (kPa)')
-            axs[1].set_xlabel('Volume (ml)')
-            axs[1].set_xlim([50, 175])  
-            axs[1].set_ylim([0, 15])  
-            axs[2].plot(np.hstack(([0,0],t_eval_systole[:t+1])), flows)
-            axs[2].set_ylabel('Outflow (ml/s)')
-            axs[2].set_xlabel('Time (ms)')
-            axs[2].set_xlim([0, 1000])  
-            axs[2].set_ylim([0, 1]) 
-            plt.tight_layout()
-            name = 'plot_' + str(t) + '.png'
-            plt.savefig(Path(outdir) / name)
-            plt.close()
-            fig, axs = plt.subplots() 
-            axs.plot(np.hstack(([0,0],t_eval_systole[:t+1])),pres,label='LV Pressure')
-            axs.plot(np.hstack(([0,0],t_eval_systole[:t+1])),ao_pres,label='Aortic Pressure')
-            axs.legend()
-            axs.set_xlim([0, 1000])  
-            axs.set_ylim([0, 15]) 
-            axs.set_xlabel('Time (ms)')
-            axs.set_ylabel('Pressure (kPa)')
-            name = 'Pressure-Time_' + str(t) + '.png'
-            plt.savefig(Path(outdir) / name)
-            plt.close()
-        if p_current<0:
-            break
-#%%   
+            circ_p_ao_current=circ_solution.y[0][1]
+            circ_dp_ao_current=circ_solution.y[1][1]
+            Q=(p_current-circ_p_ao_current)/R_ao
+        else:
+            circ_p_ao_current=circ_p_ao
+            circ_dp_ao_current=circ_dp_ao
+            Q=0 
+        v_fe=v_current
+        v_circ=v_old-Q*tau
+        R.append(v_fe-v_circ)
+        if np.abs(R[-1])>tol:
+            dVFE_dP=dV_FE(problem)
+            dVCirc_dP = dV_WK3(p_current,tau,R_ao,circ_p_ao_current,circ_dp_ao_current)                
+            J=dVFE_dP+dVCirc_dP
+            p_current=p_current-R[-1]/J
+            circ_iter+=1
+    p_current=get_lvp_from_problem(problem).values()[0]
+    v_current=get_lvv_from_problem(problem)
+    if circ_solution.y[0][1]>p_ao:
+        circ_p_ao=circ_solution.y[0][1]
+        circ_dp_ao=circ_solution.y[1][1]
+        p_ao=circ_p_ao
+    vols.append(v_current)
+    pres.append(p_current)
+    flows.append(Q*tau)
+    ao_pres.append(p_ao)
+    reults_u, p = problem.state.split(deepcopy=True)
+    reults_u.t=t+1
+    with dolfin.XDMFFile(outname.as_posix()) as xdmf:
+        xdmf.write_checkpoint(reults_u, "u", float(t+1), dolfin.XDMFFile.Encoding.HDF5, True)
+    if p_current<0.01:
+        break
+#%% Saving the results
+fig, axs = plt.subplots(2, 2, figsize=(10, 10))  # Create a figure and two subplots
+axs[0,0].plot(t_eval_systole, normal_activation_systole)
+axs[0,0].set_ylabel('Activation (kPa)')
+axs[0,0].set_xlabel('Time (ms)')
+axs[0,1].plot(np.array(vols), pres)
+axs[0,1].set_ylabel('Pressure (kPa)')
+axs[0,1].set_xlabel('Volume (ml)') 
+axs[1,0].plot(t_eval_systole[:t+3], flows)
+axs[1,0].set_ylabel('Outflow (ml/s)')
+axs[1,0].set_xlabel('Time (ms)')
+axs[1,1].plot(t_eval_systole[:t+3],pres,label='LV Pressure')
+axs[1,1].plot(t_eval_systole[:t+3],ao_pres,label='Aortic Pressure')
+axs[1,1].legend()
+axs[1,1].set_ylabel('Pressure (kPa)')
+axs[1,1].set_xlabel('Time (ms)')
+plt.tight_layout()
+name = 'plot_' + str(t) + '.png'
+plt.savefig(Path(outdir) / name)
+plt.close()
+with open(Path(outdir) / 'results_data.csv', 'w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(['Time [ms]', 'Activation [kPa]', 'Volume [ml]', 'LV Pressure [kPa]', 'Aortic Pressure [kPa]', 'Outflow[ml/ms]'])
+    for time, activation, vol, pres_val, ao_pres_val, flow in zip(t_eval_systole, normal_activation_systole, vols, pres, ao_pres, flows):
+        writer.writerow([time, activation, vol, pres_val,ao_pres_val, flow])
+#%%
