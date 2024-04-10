@@ -21,34 +21,37 @@ logger = getLogger(__name__)
 global p_current, p_old
 
 #%% Parameters
+# [ms] [cm] [ml] [kPa] 
 # Constants
-R_ao = 1e-4  #     aortic resistance
-R_circ = 1e-3  #   systemic circulation resistance
-C_circ = 1e-4   #   ystemic circulation capacitance
-p_dia=10
+# REF: Marx, L., Gsell, M. A. F., Rund, A., Caforio, F., Prassl, A. J., Toth-Gayor, G., Kuehne, T., Augustin, C. M., & Plank, G. (2020). Personalization of electro-mechanical models of the pressure-overloaded left ventricle: Fitting of Windkessel-type afterload models: Fitting of Windkessel afterload models. Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences, 378(2173). https://doi.org/10.1098/rsta.2019.0342
+R_ao = 10     #   aortic resistance [kPa][ml][ms]^{-1}
+R_circ = 100  #   systemic circulation resistance [kPa][ml][ms]^{-1}
+C_circ = 10   #   ystemic circulation capacitance [ml][kPa]^{-1}
 
 t_res=1000
-t_span = (0.0, 1.0)
+# t_span = (0.0, 1000.0)
 
-# # Aortic Pressure: the pressure from which the ejection start
+# # Initial Aortic Pressure and fixed diasotlic pressure
 p_ao=10
-# p_ao=2
+p_dia=10
 
-# # Assuming 50 mm for LVEDd (ED diameter), and 7.5mm for wall thickness.  
-# r_short_endo = 30
-# r_short_epi = 37.5
-# r_long_endo = 55
-# r_long_epi = 60
+# # Assuming 5 cm for LVEDd (ED diameter), and .75cm for wall thickness.  
+r_short_endo = 3
+r_short_epi = 3.75
+r_long_endo = 5.0
+r_long_epi = 5.5
 # mesh_size=10
-r_short_endo = 7
-r_short_epi = 10
-r_long_endo = 17
-r_long_epi = 20
-mesh_size=5
+# r_short_endo = 7
+# r_short_epi = 10
+# r_long_endo = 17
+# r_long_epi = 20
+mesh_size=2
 # # Sigma_0 for activation parameter
-sigma_0=150e3
-t_dias=0.415
-results_name='results_R1_C01_P10_Sigma150.xdmf'
+sigma_0=150     #[kPa]
+t_sys=160      #[ms]
+t_dias=484      #[ms] 
+
+results_name='results.xdmf'
 #%%
 def get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = 7,r_short_epi = 10,r_long_endo = 17,r_long_epi = 20, mesh_size=3):
     geo = cardiac_geometries.mesh.create_lv_ellipsoid(
@@ -82,10 +85,13 @@ geometry = get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = r_short_endo,
 geometry.mesh
 print(geometry.cavity_volume())
 #%%
+t_span = (0.0, 1.0)
 t_eval = np.linspace(*t_span, t_res)
 normal_activation_params = activation_model.default_parameters()
-normal_activation_params['sigma_0']=sigma_0
-normal_activation_params['t_dias']=t_dias
+normal_activation_params['sigma_0']=sigma_0*1000
+normal_activation_params['t_sys']=t_sys/1000
+normal_activation_params['t_dias']=t_dias/1000
+
 normal_activation = (
     activation_model.activation_function(
         t_span=t_span,
@@ -96,7 +102,7 @@ normal_activation = (
 )
 systole_ind=np.where(normal_activation == 0)[0][-1]+1
 normal_activation_systole=normal_activation[systole_ind:]
-t_eval_systole=t_eval[systole_ind:]
+t_eval_systole=t_eval[systole_ind:]*1000
 
 # %% Defining activation as dolfin.constant
 
@@ -136,7 +142,7 @@ def AllBCs(W):
     )
     class EndoRing_subDomain(dolfin.SubDomain):
         def inside(self, x, on_boundary):
-            return dolfin.near(x[0], 5, .01) and dolfin.near(pow(pow(x[1],2)+pow(x[2],2),0.5), 6.69, .5)
+            return dolfin.near(x[0], 1.875, .01) and dolfin.near(pow(pow(x[1],2)+pow(x[2],2),0.5), 2.78, .1)
     endo_ring_fixed=dolfin.DirichletBC(
         V,
         dolfin.Constant((0.0,0.0,0.0)),
@@ -335,7 +341,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
         p_old=pres[-1]
         v_old=vols[-1]
         R=[]
-        tol=1e-6*v_old
+        tol=1e-4*v_old
         while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
             pulse.iterate.iterate(problem, lvp, p_current)
             v_current=get_lvv_from_problem(problem)
@@ -380,17 +386,17 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs[0].scatter(t_eval_systole[t], target_activation)
             axs[0].plot(t_eval_systole, normal_activation_systole)
             axs[0].set_ylabel('Activation (kPa)')
-            axs[0].set_xlabel('Cardiac Cycle (-)')
+            axs[0].set_xlabel('Time (ms)')
             axs[1].plot(np.array(vols), pres)
             axs[1].set_ylabel('Pressure (kPa)')
-            axs[1].set_xlabel('Volume (mm3)')
-            axs[1].set_xlim([0, 2700])  
-            axs[1].set_ylim([0, 20])  
+            axs[1].set_xlabel('Volume (ml)')
+            axs[1].set_xlim([100, 175])  
+            axs[1].set_ylim([0, 15])  
             axs[2].plot(np.hstack(([0,0],t_eval_systole[:t+1])), flows)
-            axs[2].set_ylabel('Outflow (mm2/s)')
-            axs[2].set_xlabel('Cardiac Cycle (-)')
-            axs[2].set_xlim([0, 1])  
-            axs[2].set_ylim([0, 100]) 
+            axs[2].set_ylabel('Outflow (ml/s)')
+            axs[2].set_xlabel('Time (ms)')
+            axs[2].set_xlim([0, 1000])  
+            axs[2].set_ylim([0, 20]) 
             plt.tight_layout()
             name = 'plot_' + str(t) + '.png'
             plt.savefig(Path(outdir) / name)
@@ -400,7 +406,7 @@ with open(Path(outdir) / 'data.csv', 'w', newline='') as file:
             axs.plot(np.hstack(([0,0],t_eval_systole[:t+1])),ao_pres,label='Aortic Pressure')
             axs.legend()
             axs.set_xlim([0, 1])  
-            axs.set_ylim([0, 20]) 
+            axs.set_ylim([0, 1]) 
             axs.set_xlabel('Cardiac Cycle (-)')
             axs.set_ylabel('Pressure (kPa)')
             name = 'Pressure-Time_' + str(t) + '.png'
