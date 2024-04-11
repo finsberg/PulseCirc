@@ -18,7 +18,6 @@ from scipy.integrate import solve_ivp
 
 logger = getLogger(__name__)
 
-global p_current, p_old
 
 #%% Parameters
 # [ms] [cm] [ml] [kPa] 
@@ -198,7 +197,7 @@ with dolfin.XDMFFile(outname.as_posix()) as xdmf:
 # %%
 tau=t_eval_systole[1]-t_eval_systole[0]
 #%%
-def WK3(t,y):
+def WK3(t,y,p_old,p_current):
     # Defining WK3 function based on scipy.integrate.solve_ivp
     # The main equations are, with p_{ao} and its derivatives are unkowns:
     # 1. Q = \frac{p_{lv} - p_{ao}}{R_{ao}}
@@ -224,14 +223,14 @@ def WK3(t,y):
 
 def dV_WK3(p_current,tau,R_ao,circ_p_ao,circ_dp_ao):
     p_current_backup=p_current
-    circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+    circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau], args=(p_old,p_current))
     if p_current>p_ao:
         circ_p_ao_1=circ_solution.y[0][1]
         Q1=(p_current-circ_p_ao_1)/R_ao
     else:
         Q1=0 
     p_current=p_current*1.01
-    circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+    circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau], args=(p_old,p_current))
     if p_current>p_ao:
         circ_p_ao_2=circ_solution.y[0][1]
         Q2=(p_current-circ_p_ao_2)/R_ao
@@ -312,7 +311,7 @@ for t in range(len(normal_activation_systole)):
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
         pulse.iterate.iterate(problem, lvp, p_current)
         v_current=get_lvv_from_problem(problem)
-        circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau])
+        circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau], args=(p_old,p_current))
         # check the current p_ao vs previous p_ao to open the ao valve
         if circ_solution.y[0][1]>p_ao:
             circ_p_ao_current=circ_solution.y[0][1]
