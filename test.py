@@ -14,35 +14,39 @@ class ThinSphere:
     """
 
     def __init__(self, params):
-        self.p0=0
         self.r0=params["radius"]
         self.t0=params["thickness"]
         self.E=params["young_modulus"]
         self.nu=params["poisson_ratio"]
         
-        self.p=self.p0
-        self.r=self.r0
-        self.t=self.t0
+        self.sigma = 0
+        self.p = 0
+        self.r = self.r0
+        self.t = self.t0
         
-    def _compute_pressure_from_activation(self, activation: float):
-        self.p=activation*2
+    def _compute_stress_from_activation(self, activation: float):
+        self.sigma = activation * 2
 
-    def inflate(self, activation: float) -> float:
-        self._compute_pressure_from_activation(activation)
+    def contract(self, activation: float) -> float:
+        self._compute_stress_from_activation(activation)
         
-        p=self.p
-        r0=self.r0
-        t0=self.t0
-        E=self.E
-        nu=self.nu
+        r0 = self.r0
+        t0 = self.t0
+        E = self.E
+        nu = self.nu
+        sigma = self.sigma
+
+        # Calculate the pressure from the stress
+        self.p = 2 * t0 * sigma / r0
         
-        sigma=p*r0/(2*t0)
-        eps=sigma/E
-        dr=eps*r0
-        r=r0+dr
-    
-        self.r=r
-        self.t=t0-nu*dr
+        # Calculate strain and change in radius
+        eps = sigma / E
+        dr = eps * r0
+        r_new = r0 - dr
+
+        # Update the radius, and thickness
+        self.r = r_new
+        self.t = t0 - nu * dr
     
     def get_pressure(self):
         return self.p
@@ -68,6 +72,6 @@ activation=np.arange(0,10,1)
 time=np.arange(0,1,.1)
 0
 # Units [mm], [N], [MPa]
-params={"radius": 20,"thickness": 2,"young_modulus": 50, "poisson_ratio0": 0.3}
+params={"radius": 20,"thickness": 2,"young_modulus": 50, "poisson_ratio": 0.3}
 model=ThinSphere(params)
 #%%
