@@ -46,6 +46,13 @@ t_sys=160      #[ms]
 t_dias=484      #[ms] 
 
 results_name='results.xdmf'
+outdir = Path("results_full_coupled")
+outdir.mkdir(exist_ok=True, parents=True)
+outname = Path(outdir) / results_name
+if outname.is_file():
+    outname.unlink()
+    outname.with_suffix(".h5").unlink()
+    
 #%%
 def get_ellipsoid_geometry(folder=Path("lv"),r_short_endo = 7,r_short_epi = 10,r_long_endo = 17,r_long_epi = 20, mesh_size=3):
     geo = cardiac_geometries.mesh.create_lv_ellipsoid(
@@ -163,13 +170,6 @@ bcs = pulse.BoundaryConditions(
 #%%
 problem = pulse.MechanicsProblem(geometry, material, bcs)
 
-outdir = Path("results")
-outdir.mkdir(exist_ok=True, parents=True)
-outname = Path(outdir) / results_name
-if outname.is_file():
-    outname.unlink()
-    outname.with_suffix(".h5").unlink()
-    
 #%%
 vols=[]
 pres=[]
@@ -291,9 +291,9 @@ def get_lvv_from_problem(problem):
     return problem.geometry.cavity_volume(u=problem.state.sub(0))
 
 #%%
-for t in range(len(normal_activation_systole)):
+for t in range(len(normal_activation_systole)):    
     target_activation=normal_activation_systole[t]
-    pulse.iterate.iterate(problem, activation, target_activation)
+    # pulse.iterate.iterate(problem, activation, target_activation)
     #### Circulation
     circ_iter=0
     # initial guess for new pressure
@@ -301,15 +301,17 @@ for t in range(len(normal_activation_systole)):
         p_current=p_current*1.01
         circ_p_ao = p_ao
         circ_dp_ao=0
+        activation_old=0
     else:
         p_current=pres[-1]+(pres[-1]-pres[-2])
+        activation_old=normal_activation_systole[t-1]
         
     p_old=pres[-1]
     v_old=vols[-1]
     R=[]
     tol=1e-4*v_old
     while len(R)==0 or (np.abs(R[-1])>tol and circ_iter<20):
-        pulse.iterate.iterate(problem, lvp, p_current)
+        pulse.iterate.iterate(problem, (lvp, activation), (p_current, target_activation))
         v_current=get_lvv_from_problem(problem)
         circ_solution = solve_ivp(WK3, [0, tau], [circ_p_ao, circ_dp_ao],t_eval=[0, tau], args=(p_old,p_current))
         # check the current p_ao vs previous p_ao to open the ao valve
@@ -330,6 +332,8 @@ for t in range(len(normal_activation_systole)):
             J=dVFE_dP+dVCirc_dP
             p_current=p_current-R[-1]/J
             circ_iter+=1
+            pulse.iterate.iterate(problem, (lvp, activation), (p_old, activation_old))
+
     p_current=get_lvp_from_problem(problem).values()[0]
     v_current=get_lvv_from_problem(problem)
     if circ_solution.y[0][1]>p_ao:
