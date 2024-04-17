@@ -1,6 +1,5 @@
 from typing import Protocol
 import numpy as np
-from scipy.integrate import solve_ivp
 
 class HeartModel(Protocol):
     def compute_volume(self, activation: float, pressure: float) -> float: ...
