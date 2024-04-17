@@ -46,7 +46,7 @@ t_sys=160      #[ms]
 t_dias=484      #[ms] 
 
 results_name='results.xdmf'
-outdir = Path("results_full_coupled")
+outdir = Path("results_full_coupled_noreset")
 outdir.mkdir(exist_ok=True, parents=True)
 outname = Path(outdir) / results_name
 if outname.is_file():
@@ -332,7 +332,7 @@ for t in range(len(normal_activation_systole)):
             J=dVFE_dP+dVCirc_dP
             p_current=p_current-R[-1]/J
             circ_iter+=1
-            pulse.iterate.iterate(problem, (lvp, activation), (p_old, activation_old))
+            # pulse.iterate.iterate(problem, (lvp, activation), (p_old, activation_old))
 
     p_current=get_lvp_from_problem(problem).values()[0]
     v_current=get_lvv_from_problem(problem)
