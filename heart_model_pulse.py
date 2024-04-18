@@ -41,7 +41,9 @@ class HeartModelPulse:
         Returns:
         float: The computed volume of the heart model.
         """
-        pulse.iterate.iterate(self.problem, (self.activation, self.lv_pressure), (activation_value, pressure_value))
+        # It is very important to turn off continuation, other wise you would get division by zero, when one or both parameter is the same
+        pulse.iterate.iterate(self.problem, (self.activation,self.lv_pressure), (activation_value,pressure_value), continuation=False)
+            
         volume_current = self.problem.geometry.cavity_volume(u=self.problem.state.sub(0))
         return volume_current
     
@@ -64,9 +66,9 @@ class HeartModelPulse:
         # Backing up the problem 
         state_backup = self.problem.state.copy(deepcopy=True)
         pressure_backup=float(self.lv_pressure)
+        activation_backup=float(self.activation)
         # Update the problem with the give activation and pressure and store the initial State of the problem 
-        self.lv_pressure.assign(pressure_value)
-        self.activation.assign(activation_value)
+        self.assing_state_variables(activation_value,pressure_value)
         self.problem.solve()
         p_i=self.get_pressure()
         v_i=self.get_volume()
@@ -81,7 +83,7 @@ class HeartModelPulse:
         
         # reset the problem to its initial state
         self.problem.state.assign(state_backup)
-        self.lv_pressure.assign(pressure_backup)
+        self.assing_state_variables(activation_backup,pressure_backup)
         
         return dV_dP
         
@@ -107,6 +109,9 @@ class HeartModelPulse:
         with dolfin.XDMFFile(outname.as_posix()) as xdmf:
             xdmf.write_checkpoint(results_u, "u", float(t + 1), dolfin.XDMFFile.Encoding.HDF5, True)
 
+    def assing_state_variables(self, activation_value,pressure_value):
+        self.lv_pressure.assign(pressure_value)
+        self.activation.assign(activation_value)
 
     def get_ellipsoid_geometry(self, folder: Path, geo_props: dict):
         """
@@ -242,30 +247,3 @@ class HeartModelPulse:
             "r_long_epi": 5.5,
             "mesh_size": 3,
         }
-    
-
-# %%
-results_name='results.xdmf'
-outdir = Path("testing")
-outdir.mkdir(exist_ok=True, parents=True)
-outname = Path(outdir) / results_name
-if outname.is_file():
-    outname.unlink()
-    outname.with_suffix(".h5").unlink()
-
-activation=np.linspace(0.1,10,10)
-pressure=np.linspace(0.1,1,10)
-model = HeartModelPulse()
-model.compute_volume(0,0)
-model.save(0, outname=outname)
-
-volumes=[]
-dV_dPs=[]
-for t, (a,p) in enumerate(zip(activation,pressure)):
-    v=model.compute_volume(a,p)
-    volumes.append(v)
-    volume_derivation=model.compute_volume_derivation(a,p)
-    dV_dPs.append(volume_derivation)
-    model.save(t+1, outname=outname)
-    
-# %%
