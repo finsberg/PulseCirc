@@ -15,13 +15,8 @@ class CirculationModel():
         valve_pressure = self.parameters["aortic_valve_pressure"]
         
         if pressure_current>valve_pressure:
-            p_dia = self.parameters["diastolic_pressure"]
-            R_sys = self.parameters["systemic_resistance"]
             R_ao = self.parameters["aortic_resistance"]
-            C_sys = self.parameters["systemic_compliance"]
-
             circ_solution = solve_ivp(self.windkessel_3elements, [0, dt], [self.aortic_pressure, self.aortic_pressure_derivation],t_eval=[0, dt], args=(pressure_old,pressure_current))
-
             self.aortic_pressure=circ_solution.y[0][1]
             self.aortic_pressure_derivation=circ_solution.y[1][1]
             Q=(pressure_current-self.aortic_pressure)/R_ao
