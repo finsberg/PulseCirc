@@ -44,5 +44,26 @@ fe_model.save(1,outname)
 
 circ_model=CirculationModel()
 #%%
-presures, volumes, outflows, aortic_pressures = circulation_solver(fe_model, circ_model, normal_activation[:400], t_eval[:400]*1000, outdir, start_time=2)
+#  we use only the first 700ms, as the relaxation is not yet implemented
+presures, volumes, outflows, aortic_pressures = circulation_solver(fe_model, circ_model, normal_activation[:700], t_eval[:700]*1000, outdir, start_time=2)
+
+#%% Saving the results
+fig, axs = plt.subplots(2, 2, figsize=(10, 10))  # Create a figure and two subplots
+axs[0,0].plot(t_eval, normal_activation)
+axs[0,0].set_ylabel('Activation (kPa)')
+axs[0,0].set_xlabel('Time (ms)')
+axs[0,1].plot(np.array(volumes), presures)
+axs[0,1].set_ylabel('Pressure (kPa)')
+axs[0,1].set_xlabel('Volume (ml)') 
+axs[1,0].plot(t_eval[:len(presures)], outflows)
+axs[1,0].set_ylabel('Outflow (ml/s)')
+axs[1,0].set_xlabel('Time (ms)')
+axs[1,1].plot(t_eval[:len(presures)],presures,label='LV Pressure')
+axs[1,1].plot(t_eval[:len(presures)],aortic_pressures,label='Aortic Pressure')
+axs[1,1].legend()
+axs[1,1].set_ylabel('Pressure (kPa)')
+axs[1,1].set_xlabel('Time (ms)')
+plt.tight_layout()
+name = 'results.png'
+plt.savefig(Path(outdir) / name)
 # %%

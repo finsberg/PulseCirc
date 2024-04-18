@@ -65,7 +65,7 @@ def circulation_solver(heart_model: HeartModel, circulation_model: CirculationMo
         else:
             p_current=presures[-1]+(presures[-1]-presures[-2])
             dt=time[i]-time[i-1]
-            
+        
         tol=1e-3
         R=[]
         circ_iter=0
@@ -89,7 +89,6 @@ def circulation_solver(heart_model: HeartModel, circulation_model: CirculationMo
         outflows.append(outflow)
         aortic_pressures.append(circulation_model.aortic_pressure)
         heart_model.save(t+start_time,outname)
-        
     with open(Path(outdir) / 'results_data.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(['Time [ms]', 'Activation [kPa]', 'Volume [ml]', 'LV Pressure [kPa]', 'Aortic Pressure [kPa]', 'Outflow[ml/ms]'])
