@@ -20,9 +20,11 @@ class HeartModelPulse:
         self.lv_pressure = dolfin.Constant(0.0, name='LV Pressure')
         self.activation = dolfin.Constant(0.0, name='Activation')
 
-        if geo_params is None:
-            geo_params = self.get_default_geo_params()
-        self.geometry = self.get_ellipsoid_geometry(geo_folder, geo_params)
+        # Use provided geo_params or default ones if not provided
+        default_geo_params = self.get_default_geo_params()
+        self.geo_params = {key: geo_params.get(key, default_geo_params[key]) for key in default_geo_params} if geo_params else default_geo_params
+
+        self.geometry = self.get_ellipsoid_geometry(geo_folder, self.geo_params)
         self.material = self.get_material_model()
         self.bcs = self.apply_bcs()
         self.problem = pulse.MechanicsProblem(self.geometry, self.material, self.bcs)
@@ -253,7 +255,6 @@ if outname.is_file():
 
 activation=np.linspace(0.1,10,10)
 pressure=np.linspace(0.1,1,10)
-
 model = HeartModelPulse()
 model.compute_volume(0,0)
 model.save(0, outname=outname)
