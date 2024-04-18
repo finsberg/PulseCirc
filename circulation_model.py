@@ -10,7 +10,7 @@ class CirculationModel():
         self.aortic_pressure=self.parameters["diastolic_pressure"]
         self.aortic_pressure_derivation=0  
         
-    def compute_outflow(self, pressure_current: float, pressure_old: float, dt: float)-> floats:
+    def compute_outflow(self, pressure_current: float, pressure_old: float, dt: float)-> float:
         """Compute Q, Q_r, and Q_c for given LV pressure and time step dt."""
         
         p_dia = self.parameters["diastolic_pressure"]
