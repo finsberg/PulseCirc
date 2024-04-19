@@ -53,9 +53,9 @@ class CirculationModel():
         # 6. \frac{d^2p_{ao}}{dt^2} = \frac{Q - Q_R - Q_C}{C_{circ}}
         
         p_dia = self.parameters["diastolic_pressure"]
-        R_sys = self.parameters["systemic_resistance"]
+        R_sys = self.parameters["systematic_resistance"]
         R_ao = self.parameters["aortic_resistance"]
-        C_sys = self.parameters["systemic_compliance"]
+        C_sys = self.parameters["systematic_compliance"]
         
         p_ao = y[0]
         dp_ao_dt = y[1]
@@ -76,9 +76,9 @@ class CirculationModel():
     def get_default_params():
         """Return the default parameters for the circulation model."""
         return {
-            "aortic_resistance": 1,
-            "systemic_resistance": 10,
-            "systemic_compliance": 5,
+            "aortic_resistance": 0.1,
+            "systematic_resistance": 1,
+            "systematic_compliance": 0.5,
             "aortic_pressure": 10,
             "diastolic_pressure": 10,
         }

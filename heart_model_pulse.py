@@ -244,6 +244,6 @@ class HeartModelPulse:
             "r_short_endo": 3,
             "r_short_epi": 3.75,
             "r_long_endo": 5,
-            "r_long_epi": 5.5,
-            "mesh_size": 3,
+            "r_long_epi": 5.75,
+            "mesh_size": 2.5,
         }
