@@ -11,7 +11,7 @@ import activation_model
 #%% Output directory
 
 results_name='results.xdmf'
-outdir = Path("results_refactored_01_1_05")
+outdir = Path("results_refactored_01_1_05_update_aortic")
 outdir.mkdir(exist_ok=True, parents=True)
 outname = Path(outdir) / results_name
 if outname.is_file():
@@ -43,7 +43,7 @@ fe_model.compute_volume(0,0.01)
 fe_model.save(1,outname)
 
 circ_model=CirculationModel()
-t_end=400
+t_end=600
 #%%
 #  we use only the first 700ms, as the relaxation is not yet implemented
 presures, volumes, outflows, aortic_pressures = circulation_solver(fe_model, circ_model, normal_activation[:t_end], t_eval[:t_end]*1000, outdir, start_time=2)

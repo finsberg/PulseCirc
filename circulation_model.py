@@ -8,16 +8,20 @@ class CirculationModel():
         self.parameters = {key: params.get(key, default_params[key]) for key in default_params} if params else default_params
         
         self.aortic_pressure=self.parameters["diastolic_pressure"]
-        self.aortic_pressure_derivation=0  
+        self.aortic_pressure_derivation=0
+        self.circ_solution=0
+        self.valve_open=False
         
     def compute_outflow(self, pressure_current: float, pressure_old: float, dt: float)-> float:
         """Compute Q, Q_r, and Q_c for given LV pressure and time step dt."""
         
         if pressure_current>self.aortic_pressure:
+            self.valve_open=True
+        else:
+            self.valve_open=False
+        if self.valve_open:
             R_ao = self.parameters["aortic_resistance"]
-            circ_solution = solve_ivp(self.windkessel_3elements, [0, dt], [self.aortic_pressure, self.aortic_pressure_derivation],t_eval=[0, dt], args=(pressure_old,pressure_current))
-            self.aortic_pressure=circ_solution.y[0][1]
-            self.aortic_pressure_derivation=circ_solution.y[1][1]
+            self.circ_solution = solve_ivp(self.windkessel_3elements, [0, dt], [self.aortic_pressure, self.aortic_pressure_derivation],t_eval=[0, dt], args=(pressure_old,pressure_current))
             Q=(pressure_current-self.aortic_pressure)/R_ao
         else:
             Q=0 
@@ -40,6 +44,10 @@ class CirculationModel():
         self.aortic_pressure_derivation=aortic_pressure_derivation_backup
         
         return dQ_dP
+    
+    def update_aortic_pressure(self):
+        self.aortic_pressure=self.circ_solution.y[0][1]
+        self.aortic_pressure_derivation=self.circ_solution.y[1][1]
     
     def windkessel_3elements(self,t,y,p_old,p_current):
         

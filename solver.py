@@ -86,12 +86,16 @@ def circulation_solver(heart_model: HeartModel, circulation_model: CirculationMo
             
             p_current=heart_model.get_pressure()
             v_current=heart_model.get_volume()
+            if circulation_model.valve_open:
+                circulation_model.update_aortic_pressure()
             volumes.append(v_current)
             presures.append(p_current)
             outflows.append(outflow)
             aortic_pressures.append(circulation_model.aortic_pressure)
             heart_model.save(t+start_time,outname)
             writer.writerow([t, a_current, v_current, p_current,circulation_model.aortic_pressure, circulation_model.aortic_pressure_derivation, outflow])
+            if p_current<0.01:
+                break
         # for time, activation, vol, pres_val, ao_pres_val, flow in zip(time, activation, volumes, presures, aortic_pressures, outflows):
             # writer.writerow([time, activation, vol, pres_val,ao_pres_val, flow])
 
