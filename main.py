@@ -11,7 +11,7 @@ import activation_model
 #%% Output directory
 
 results_name='results.xdmf'
-outdir = Path("results_refactored_01_1_05_update_aortic")
+outdir = Path("results")
 outdir.mkdir(exist_ok=True, parents=True)
 outname = Path(outdir) / results_name
 if outname.is_file():
@@ -56,11 +56,11 @@ axs[0,0].set_xlabel('Time (ms)')
 axs[0,1].plot(np.array(volumes), presures)
 axs[0,1].set_ylabel('Pressure (kPa)')
 axs[0,1].set_xlabel('Volume (ml)') 
-axs[1,0].plot(t_eval[:len(presures)], outflows)
+axs[1,0].plot(t_eval[:len(presures)]*1000, outflows)
 axs[1,0].set_ylabel('Outflow (ml/s)')
 axs[1,0].set_xlabel('Time (ms)')
-axs[1,1].plot(t_eval[:len(presures)],presures,label='LV Pressure')
-axs[1,1].plot(t_eval[:len(presures)],aortic_pressures,label='Aortic Pressure')
+axs[1,1].plot(t_eval[:len(presures)]*1000,presures,label='LV Pressure')
+axs[1,1].plot(t_eval[:len(presures)]*1000,aortic_pressures,label='Aortic Pressure')
 axs[1,1].legend()
 axs[1,1].set_ylabel('Pressure (kPa)')
 axs[1,1].set_xlabel('Time (ms)')

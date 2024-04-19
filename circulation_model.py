@@ -84,9 +84,9 @@ class CirculationModel():
     def get_default_params():
         """Return the default parameters for the circulation model."""
         return {
-            "aortic_resistance": 0.1,
-            "systematic_resistance": 1,
-            "systematic_compliance": 0.5,
+            "aortic_resistance": 0.5,
+            "systematic_resistance": 2.5,
+            "systematic_compliance": 0.1,
             "aortic_pressure": 10,
             "diastolic_pressure": 10,
         }
