@@ -15,10 +15,15 @@ class HeartModel(Protocol):
     def save(self): ...
 
 class CirculationModel(Protocol):
+    aortic_pressure: float
+    aortic_pressure_derivation: float
+    valve_open: bool
+    
     def compute_outflow(self, pressure_current: float, pressure_old: float, dt: float) -> float: ...
         
     def compute_outflow_derivation(self, pressure_current: float, pressure_old: float, dt: float) -> float: ...
         
+    def update_aortic_pressure(self) -> float: ...
 
     
 
