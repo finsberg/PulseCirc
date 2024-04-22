@@ -9,7 +9,7 @@ import dolfin
 
 #%%
 class HeartModelPulse:
-    def __init__(self, geo_params: dict = None, geo_folder: Path = Path("lv_test")):
+    def __init__(self, geo: pulse.HeartGeometry= None, geo_params: dict = None, geo_folder: Path = Path("lv_test")):
         """
         Initializes the heart model with given geometrical parameters and folder for geometrical data.
 
@@ -19,12 +19,14 @@ class HeartModelPulse:
         """
         self.lv_pressure = dolfin.Constant(0.0, name='LV Pressure')
         self.activation = dolfin.Constant(0.0, name='Activation')
-
+        if geo is None:
         # Use provided geo_params or default ones if not provided
-        default_geo_params = self.get_default_geo_params()
-        self.geo_params = {key: geo_params.get(key, default_geo_params[key]) for key in default_geo_params} if geo_params else default_geo_params
+            default_geo_params = self.get_default_geo_params()
+            self.geo_params = {key: geo_params.get(key, default_geo_params[key]) for key in default_geo_params} if geo_params else default_geo_params
 
-        self.geometry = self.get_ellipsoid_geometry(geo_folder, self.geo_params)
+            self.geometry = self.get_ellipsoid_geometry(geo_folder, self.geo_params)
+        else:
+            self.geometry=geo
         self.material = self.get_material_model()
         self.bcs = self.apply_bcs()
         self.problem = pulse.MechanicsProblem(self.geometry, self.material, self.bcs)
@@ -68,7 +70,7 @@ class HeartModelPulse:
         pressure_backup=float(self.lv_pressure)
         activation_backup=float(self.activation)
         # Update the problem with the give activation and pressure and store the initial State of the problem 
-        self.assing_state_variables(activation_value,pressure_value)
+        self.assign_state_variables(activation_value,pressure_value)
         self.problem.solve()
         p_i=self.get_pressure()
         v_i=self.get_volume()
@@ -83,7 +85,7 @@ class HeartModelPulse:
         
         # reset the problem to its initial state
         self.problem.state.assign(state_backup)
-        self.assing_state_variables(activation_backup,pressure_backup)
+        self.assign_state_variables(activation_backup,pressure_backup)
         
         return dV_dP
         
@@ -109,7 +111,7 @@ class HeartModelPulse:
         with dolfin.XDMFFile(outname.as_posix()) as xdmf:
             xdmf.write_checkpoint(results_u, "u", float(t + 1), dolfin.XDMFFile.Encoding.HDF5, True)
 
-    def assing_state_variables(self, activation_value,pressure_value):
+    def assign_state_variables(self, activation_value,pressure_value):
         self.lv_pressure.assign(pressure_value)
         self.activation.assign(activation_value)
 
