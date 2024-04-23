@@ -1,7 +1,9 @@
 from pathlib import Path
 from dataclasses import dataclass
 import cardiac_geometries.geometry
-import matplotlib.pyplot as plt
+import logging
+from structlog import get_logger
+
 
 import dolfin
 import pulse
@@ -10,6 +12,9 @@ import cardiac_geometries
 
 import circ
 import activation_model
+
+logger = get_logger()
+logging.getLogger("pulse").setLevel(logging.WARN)
 
 
 def load_geometry(
@@ -80,6 +85,7 @@ class CirculationModel:
 
     @activation.setter
     def activation(self, value: float):
+        logger.info("Setting activation", value=value)
         pulse.iterate.iterate(self.problem, self.problem.material.activation, value)
 
     @property
@@ -97,6 +103,7 @@ class CirculationModel:
 
     @pressure.setter
     def pressure(self, value):
+        logger.info("Setting pressure", value=value)
         pulse.iterate.iterate(
             self.problem,
             self.problem.bcs.neumann[0].traction,
@@ -111,7 +118,6 @@ class CirculationModel:
         :pulse.MechanicsProblem problem:    The mechanics problem containg the infromation on FE model.
 
         """
-        #
         #  Backup the problem
         lvp_value_backup_dv = self.pressure
         state_backup_dv = self.problem.state.copy(deepcopy=True)
@@ -122,6 +128,7 @@ class CirculationModel:
         dp = dp0
         k = 0
         flag_solved = False
+        logger.info("Calculating dV/dP for FEM", p_old=p_old, v_old=v_old, dp=dp)
         while (not flag_solved) and k < 20:
             try:
                 p_new = p_old + dp
@@ -133,14 +140,18 @@ class CirculationModel:
                 lvp.assign(lvp_value_backup_dv)
                 # problem.solve()
                 dp += dp0
-                print(f"Derivation not Converged, increasin the dp to : {dp}")
+                print(f"Derivation not Converged, increasing the dp to : {dp}")
                 k += 1
 
         # pulse.iterate.iterate(dummy_problem, dummy_lvp, p_new, initial_number_of_steps=5)
         v_new = self.volume
         dVdp = (v_new - v_old) / (p_new - p_old)
+        logger.info("dV/dP for FEM model", dVdp=dVdp, p_new=p_new, v_new=v_new)
         self.problem.state.assign(state_backup_dv)
         lvp.assign(lvp_value_backup_dv)
+        logger.info("Restoring the state and pressure", p_old=p_old, v_old=v_old)
+        self.problem.solve()
+        logger.info("Done restoring")
 
         return dVdp
 
@@ -157,7 +168,6 @@ def main():
     geometry = load_geometry(mesh_folder)
     print(geometry.cavity_volume())
     t_res = 1000
-    results_name = "results.xdmf"
 
     t_span = (0.0, 1.0)
     t_eval = np.linspace(*t_span, t_res)

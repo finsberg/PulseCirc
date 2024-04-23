@@ -21,8 +21,8 @@ urls = {Homepage = "https://github.com/mjsadeghinia/PulseCirc"}
 requires-python = ">=3.8"
 dependencies = [
     "scipy",
-    "numpy"
-
+    "numpy",
+    "structlog",
 ]
 
 [project.readme]

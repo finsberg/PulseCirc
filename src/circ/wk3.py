@@ -1,4 +1,7 @@
+from structlog import get_logger
 from scipy.integrate import solve_ivp
+
+logger = get_logger()
 
 
 def WK3(t, y, p_old, p_current, p_ao, p_dia, R_ao, R_circ, C_circ):
@@ -26,8 +29,7 @@ def WK3(t, y, p_old, p_current, p_ao, p_dia, R_ao, R_circ, C_circ):
     return [dp_ao_dt, d2p_ao_dt2]
 
 
-def dV_WK3(p_current, tau, R_ao, circ_p_ao, circ_dp_ao, p_ao, R_circ, C_circ):
-    p_current_backup = p_current
+def compute_flow(p_current, tau, R_ao, circ_p_ao, circ_dp_ao, p_ao, R_circ, C_circ):
     circ_solution = solve_ivp(
         WK3,
         [0, tau],
@@ -36,22 +38,55 @@ def dV_WK3(p_current, tau, R_ao, circ_p_ao, circ_dp_ao, p_ao, R_circ, C_circ):
         args=(p_current, p_current, p_ao, p_ao, R_ao, R_circ, C_circ),
     )
     if p_current > p_ao:
-        circ_p_ao_1 = circ_solution.y[0][1]
-        Q1 = (p_current - circ_p_ao_1) / R_ao
+        return (p_current - circ_solution.y[0][1]) / (R_ao * p_current)
     else:
-        Q1 = 0
-    p_current = p_current * 1.01
-    circ_solution = solve_ivp(
-        WK3,
-        [0, tau],
-        [circ_p_ao, circ_dp_ao],
-        t_eval=[0, tau],
-        args=(p_current, p_current, p_ao, p_ao, R_ao, R_circ, C_circ),
+        return 0
+
+
+def dV_WK3(
+    p_current,
+    tau,
+    R_ao,
+    circ_p_ao,
+    circ_dp_ao,
+    p_ao,
+    R_circ,
+    C_circ,
+    h=0.01,
+):
+    logger.info(
+        "Calculating dV/dP for WK3",
+        p_current=p_current,
+        tau=tau,
+        R_ao=R_ao,
+        circ_p_ao=circ_p_ao,
+        circ_dp_ao=circ_dp_ao,
+        p_ao=p_ao,
+        R_circ=R_circ,
+        C_circ=C_circ,
+        h=h,
     )
-    if p_current > p_ao:
-        circ_p_ao_2 = circ_solution.y[0][1]
-        Q2 = (p_current - circ_p_ao_2) / R_ao
-    else:
-        Q2 = 0
-    p_current = p_current_backup
-    return (Q2 - Q1) / (p_current * 0.01) * tau
+    Q1 = compute_flow(
+        p_current,
+        tau,
+        R_ao,
+        circ_p_ao,
+        circ_dp_ao,
+        p_ao,
+        R_circ,
+        C_circ,
+    )
+    Q2 = compute_flow(
+        p_current * (1 + h),
+        tau,
+        R_ao,
+        circ_p_ao,
+        circ_dp_ao,
+        p_ao,
+        R_circ,
+        C_circ,
+    )
+
+    value = ((Q2 - Q1) / h) * tau
+    logger.info("dV/dP", value=value)
+    return value

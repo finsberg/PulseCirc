@@ -1,7 +1,9 @@
 from pathlib import Path
 import matplotlib.pyplot as plt
+from structlog import get_logger
 import csv
 
+logger = get_logger()
 
 class DataCollector:
     def __init__(self, outdir: Path | None = None) -> None:
@@ -22,6 +24,15 @@ class DataCollector:
         flow: float,
         p_ao: float,
     ) -> None:
+        logger.info(
+            "Collecting data",
+            time=time,
+            activation=activation,
+            volume=volume,
+            pressure=pressure,
+            flow=flow,
+            p_ao=p_ao,
+        )
         self.times.append(time)
         self.activations.append(activation)
         self.volumes.append(volume)
