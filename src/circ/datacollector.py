@@ -62,7 +62,7 @@ class DataCollector:
         return Path(self.outdir) / "results.png"
 
     def _save_csv(self):
-        with open(self.csv_file, newline="") as file:
+        with open(self.csv_file, 'w', newline="") as file:
             writer = csv.writer(file)
             writer.writerow(
                 [
@@ -117,4 +117,4 @@ class DataCollector:
     def save(self, t: float) -> None:
         self.problem.save(t, self.outdir)
         self._plot()
-        # self._save_csv()
+        self._save_csv()
