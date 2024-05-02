@@ -3,6 +3,7 @@ from typing import Protocol
 import matplotlib.pyplot as plt
 from structlog import get_logger
 import csv
+import numpy as np
 
 logger = get_logger()
 
@@ -94,6 +95,11 @@ class DataCollector:
         axs[0, 1].plot(self.volumes, self.pressures)
         axs[0, 1].set_ylabel("Pressure (kPa)")
         axs[0, 1].set_xlabel("Volume (ml)")
+        ax2 = axs[0, 1].twinx()
+        pressures_mmHg = np.array(self.pressures) * 7.50062 #Convert to mmHg
+        # Plotting the same data but converted on the second y-axis
+        ax2.plot(self.volumes, pressures_mmHg, 'r-', alpha=0)  # invisible plot just for axis
+        ax2.set_ylabel('Pressure (mmHg)')
         axs[1, 0].plot(self.times, self.outflows)
         axs[1, 0].set_ylabel("Outflow (ml/s)")
         axs[1, 0].set_xlabel("Time (ms)")
@@ -102,6 +108,9 @@ class DataCollector:
         axs[1, 1].legend()
         axs[1, 1].set_ylabel("Pressure (kPa)")
         axs[1, 1].set_xlabel("Time (ms)")
+        ax4 = axs[1, 1].twinx()
+        ax4.plot(self.times, pressures_mmHg, 'r-', alpha=0)  # invisible plot just for axis
+        ax4.set_ylabel('Pressure (mmHg)')
         fig.savefig(self.figure)
         plt.close(fig)
 
