@@ -71,8 +71,7 @@ class DataCollector:
                     "Volume [ml]",
                     "LV Pressure [kPa]",
                     "Aortic Pressure [kPa]",
-                    "Aortic Pressure Derivation [kPa/ms]",
-                    "Outflow[ml/ms]",
+                    "Outflow [ml/ms]",
                 ]
             )
             for time, activation, vol, pres_val, ao_pres_val, flow in zip(
@@ -118,3 +117,23 @@ class DataCollector:
         self.problem.save(t, self.outdir)
         self._plot()
         self._save_csv()
+    
+    def read_csv(self):
+        data = {
+            "time": [],
+            "activation": [],
+            "volume": [],
+            "lv_pressure": [],
+            "aortic_pressure": [],
+            "outflow": []
+        }
+        with open(self.csv_file, mode='r') as file:
+            csv_reader = csv.DictReader(file)
+            for row in csv_reader:
+                data["time"].append(float(row["Time [ms]"]))
+                data["activation"].append(float(row["Activation [kPa]"]))
+                data["volume"].append(float(row["Volume [ml]"]))
+                data["lv_pressure"].append(float(row["LV Pressure [kPa]"]))
+                data["aortic_pressure"].append(float(row["Aortic Pressure [kPa]"]))
+                data["outflow"].append(float(row["Outflow [ml/ms]"]))
+        return data
