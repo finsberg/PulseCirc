@@ -22,9 +22,13 @@ class DataCollector:
         self.outflows = []
         self.aortic_pressures = []
         self.problem = problem
-
         outdir.mkdir(exist_ok=True, parents=True)
         self.outdir = outdir
+        if hasattr(problem,'comm'):
+            self.comm = problem.comm
+        else:
+            from dolfin import MPI
+            self.comm = MPI.comm_world
 
     def collect(
         self,
@@ -35,22 +39,23 @@ class DataCollector:
         flow: float,
         p_ao: float,
     ) -> None:
-        logger.info(
-            "Collecting data",
-            time=time,
-            activation=activation,
-            volume=volume,
-            pressure=pressure,
-            flow=flow,
-            p_ao=p_ao,
-        )
+        if self.comm.rank == 0:
+            logger.info(
+                "Collecting data",
+                time=time,
+                activation=activation,
+                volume=volume,
+                pressure=pressure,
+                flow=flow,
+                p_ao=p_ao,
+            )
+        # print('start collecting from ', self.comm.rank)
         self.times.append(time)
         self.activations.append(activation)
         self.volumes.append(volume)
         self.pressures.append(pressure)
         self.outflows.append(flow)
         self.aortic_pressures.append(p_ao)
-
         self.save(time)
 
     @property
@@ -115,8 +120,9 @@ class DataCollector:
 
     def save(self, t: float) -> None:
         self.problem.save(t, self.outdir)
-        self._plot()
-        self._save_csv()
+        if self.comm.rank==0:
+            self._plot()
+            self._save_csv()
     
     def read_csv(self):
         data = {
